@@ -121,13 +121,18 @@
     .chk-stage.checked { background: var(--primary); border-color: var(--primary); color: white; }
     .chk-stage:hover { border-color: var(--primary); }
 
+    .auth-container { max-width: 520px; margin: 30px auto; background: white; border-radius: 16px; border: 1px solid var(--slate-200); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); overflow: hidden; }
+    .auth-header { background: var(--dark); color: white; padding: 32px 24px; text-align: center; }
+    .auth-body { padding: 28px 24px; }
+    .auth-tab-bar { display: flex; border-bottom: 1px solid var(--slate-200); margin-bottom: 20px; }
+    .auth-tab-btn { flex: 1; padding: 12px; border: none; background: none; font-weight: 800; font-size: 13px; cursor: pointer; color: var(--slate-500); border-bottom: 2px solid transparent; }
+    .auth-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
     .kid-tab-pill { border: 1px solid var(--slate-200); background: white; border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--slate-600); transition: all 0.15s; }
     .kid-tab-pill.active { background: var(--purple-600); color: white; border-color: var(--purple-600); }
 
     .search-box { display: flex; align-items: center; gap: 8px; background: white; border: 1px solid var(--slate-300); border-radius: 8px; padding: 4px 10px; max-width: 320px; width: 100%; }
     .search-box input { border: none; outline: none; font-size: 12px; width: 100%; }
-
-    .offline-banner { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
 
     @media print {
       body * { visibility: hidden; }
@@ -156,8 +161,6 @@
       </div>
 
       <div style="display: flex; align-items: center; gap: 12px;">
-        <span id="sync-status" class="offline-banner" style="display: none;">📶 PWA Local Cache</span>
-
         <div id="group-selector-box" style="display: flex; align-items: center; gap: 6px;">
           <select id="group-select" class="form-control" style="padding: 4px 8px; font-weight: 700; background: var(--slate-800); color: white; border-color: var(--slate-700);" onchange="switchGroup(this.value)">
           </select>
@@ -176,7 +179,7 @@
     </div>
   </header>
 
-  <!-- SECTION BAR (Filtered by leader role) -->
+  <!-- SECTION BAR (Filtered by leader role, hidden for parents) -->
   <div class="section-bar" id="section-bar" style="display: none;">
     <div class="container section-inner" id="section-pills-container">
       <span class="sec-label">Section:</span>
@@ -197,41 +200,222 @@
   </div>
 
   <script>
-    // --- UK SCOUTS CURRICULUM DATA ---
+    // --- ONLINE DATA LAYER (Netlify Identity sign-in + /api storage) ---
+    const HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+    function escapeDeep(v) {
+      if (typeof v === 'string') return v.replace(/[&<>"']/g, c => HTML_ESC[c]);
+      if (Array.isArray(v)) return v.map(escapeDeep);
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, escapeDeep(x)]));
+      return v;
+    }
+
+    function unescapeHtml(str) {
+      const t = document.createElement('textarea');
+      t.innerHTML = str;
+      return t.value;
+    }
+
+    function localDate() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    async function api(method, path, body) {
+      const res = await fetch(`/api/${path}`, {
+        method,
+        credentials: 'same-origin',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      return data;
+    }
+
+    async function saveAndRefresh(promise, successMsg) {
+      try {
+        await promise;
+        if (successMsg) alert(successMsg);
+      } catch (err) {
+        alert('Could not save: ' + err.message);
+      }
+      await refreshApp();
+    }
+
+    // --- FULL OFFICIAL SCOUTS.ORG.UK CURRICULUM ---
     const UNIVERSAL_STAGED_BADGES = [
       { id: 'stg-emergency', name: 'Emergency Aid Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Stage 1: Reassurance & 999 call', 'Stage 2: Recovery position & burns', 'Stage 3: CPR & severe bleeding control', 'Stage 4: Head trauma, fractures & asthma treatment', 'Stage 5: Full First Response / wilderness triage'] },
       { id: 'stg-hikes', name: 'Hikes Away Staged Activity Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 Hike Away', '5 Hikes Away', '10 Hikes Away', '20 Hikes Away', '35 Hikes Away', '50 Hikes Away'] },
       { id: 'stg-nights', name: 'Nights Away Staged Activity Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 Night Away', '5 Nights Away', '10 Nights Away', '20 Nights Away', '35 Nights Away', '50 Nights Away'] },
       { id: 'stg-nav', name: 'Navigator Staged Activity Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Stage 1: Cardinal points & local map', 'Stage 2: 4-figure grid refs & OS symbols', 'Stage 3: 6-figure grid refs & bearings', 'Stage 4: Night & off-track micro-navigation'] },
-      { id: 'stg-water', name: 'Time on the Water Staged Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 session afloat', '5 sessions', '10 sessions', '20 sessions', '50 sessions'] }
+      { id: 'stg-water', name: 'Time on the Water Staged Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 session afloat', '5 sessions', '10 sessions', '20 sessions', '50 sessions'] },
+      { id: 'stg-paddle', name: 'Paddle Sports Staged Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Forward paddling', 'Capsize drill', 'Moving water rescue', 'Multi-day river trip'] },
+      { id: 'stg-sailing', name: 'Sailing Staged Activity Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Rigging & points of sail', 'Tacking & gybing', 'Capsize recovery', 'Day passage navigation'] },
+      { id: 'stg-swimmer', name: 'Swimmer Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Swim 10m & float', 'Swim 25m & entry', 'Swim 50m & surface dive', 'Swim 100m clothed', 'Lifesaving recovery & endurance'] },
+      { id: 'stg-community', name: 'Community Impact Staged Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['3 hrs community service', 'Campaign action', 'Impact evaluation', 'Project leadership'] },
+      { id: 'stg-music', name: 'Musician Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Simple rhythm', '2 pieces', 'Solo performance', 'Grade 5 equivalent', 'Orchestra/Band leader'] }
     ];
 
     const BADGES = {
       squirrels: [
         { id: 'sq-acorn', name: "Chief Scout's Acorn Award", cat: "Top Award", stages: ["Complete all 4 Challenge Awards", "Take part in 2 outdoor sessions", "Share your Squirrel journey"] },
         { id: 'sq-feel-good', name: "Feel Good Challenge Award", cat: "Challenge Award", stages: ["Try a healthy snack", "Quiet reflection time", "Play an energetic team game"] },
-        { id: 'sq-explore', name: "Explore Outdoors Activity Badge", cat: "Activity Badge", stages: ["Spot 4 garden birds", "Collect 5 natural items on a trail", "Splash in rain safely"] },
+        { id: 'sq-all-about-me', name: "All About Me Challenge Award", cat: "Challenge Award", stages: ["Make a family tree drawing", "Express a hobby to the Drey", "Learn about emotions"] },
+        { id: 'sq-adventure', name: "All About Adventure Challenge Award", cat: "Challenge Award", stages: ["Campfire games", "First walk in the woods", "Pack a day bag"] },
+        { id: 'sq-explore', name: "Explore Outdoors Activity Badge", cat: "Activity Badge", stages: ["Spot 4 garden birds", "Collect 5 natural items on a trail", "Splash in rain or walk in wind safely"] },
+        { id: 'sq-active', name: "Be Active Activity Badge", cat: "Activity Badge", stages: ["Try 3 new body movements", "Lead a movement game", "Drink water and cool down"] },
+        { id: 'sq-builder', name: "Brilliant Builder Activity Badge", cat: "Activity Badge", stages: ["Build a den with chairs/blankets", "Construct a model with bricks", "Explain how you built it"] },
+        { id: 'sq-experiments', name: "Exciting Experiments Activity Badge", cat: "Activity Badge", stages: ["Sink or float water experiment", "Mix colors experiment", "Observe shadows"] },
+        { id: 'sq-creative', name: "Get Creative Activity Badge", cat: "Activity Badge", stages: ["Make a leaf/twig rubbing", "Paint with natural items", "Make a model"] },
+        { id: 'sq-wild', name: "Go Wild Activity Badge", cat: "Activity Badge", stages: ["Build a simple bird feeder", "Look under logs for mini-beasts", "Recycle litter"] },
+        { id: 'sq-grow', name: "Let It Grow Activity Badge", cat: "Activity Badge", stages: ["Plant seeds in soil", "Water plants and watch growth", "Identify common garden plants"] },
+        { id: 'sq-story', name: "Story Time Activity Badge", cat: "Activity Badge", stages: ["Listen to an adventure story", "Dress up as a character", "Act out an animal role"] },
+        { id: 'sq-super', name: "Super Squirrel Activity Badge", cat: "Activity Badge", stages: ["Help an adult with a task", "Say thank you to a helper", "Tidy up after a pack session"] },
         ...UNIVERSAL_STAGED_BADGES
       ],
       beavers: [
         { id: 'bv-bronze', name: "Chief Scout's Bronze Award", cat: "Top Award", stages: ["Complete all 6 Challenge Awards", "Complete 4 Activity/Staged badges", "Personal project presentation"] },
         { id: 'bv-adventure', name: "My Adventure Challenge Award", cat: "Challenge Award", stages: ["Try 2 adventurous activities", "Pack your own kit bag", "Play 3 new team games"] },
         { id: 'bv-outdoors', name: "My Outdoors Challenge Award", cat: "Challenge Award", stages: ["Camp overnight or sleepover", "Cook outdoors on a fire", "Learn safe campfire rules"] },
+        { id: 'bv-skills', name: "My Skills Challenge Award", cat: "Challenge Award", stages: ["Try 2 new hobbies", "Learn 2 basic knots", "Practice emergency dialing 999"] },
+        { id: 'bv-world', name: "My World Challenge Award", cat: "Challenge Award", stages: ["Local community service project", "Celebrate a world festival", "Eco recycling session"] },
+        { id: 'bv-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Play in 4 team games", "Help set up the hall", "Support a newer Beaver"] },
+        { id: 'bv-personal', name: "Personal Challenge Award", cat: "Challenge Award", stages: ["Complete 2 personal goals set with your leader"] },
+        { id: 'bv-air', name: "Air Activities Badge", cat: "Activity Badge", stages: ["Make paper gliders", "Visit an airfield or identify 4 aircraft", "Learn why planes fly"] },
+        { id: 'bv-animal', name: "Animal Friend Activity Badge", cat: "Activity Badge", stages: ["Look after a pet for 2 weeks", "Feed garden birds", "Learn how animals stay safe"] },
+        { id: 'bv-book', name: "Book Reader Activity Badge", cat: "Activity Badge", stages: ["Read 3 books", "Design a bookmark", "Explain your favourite character"] },
+        { id: 'bv-builder', name: "Builder Activity Badge", cat: "Activity Badge", stages: ["Draw a construction plan", "Build a structure from boxes/blocks", "Test structure stability"] },
+        { id: 'bv-craft', name: "Camp Craft Activity Badge", cat: "Activity Badge", stages: ["Help put up a tent", "Pack an overnight bag", "Cook toast or damper on an open fire"] },
+        { id: 'bv-collector', name: "Collector Activity Badge", cat: "Activity Badge", stages: ["Build a collection over 6 weeks", "Display collection to the Lodge", "Explain why you chose it"] },
+        { id: 'bv-communicator', name: "Communicator Activity Badge", cat: "Activity Badge", stages: ["Learn fingerspelling in BSL", "Decode a message", "Memorize a message and pass it on"] },
+        { id: 'bv-cyclist', name: "Cyclist Activity Badge", cat: "Activity Badge", stages: ["Check tyre pressure & brakes", "Demonstrate safe helmet fitting", "Complete 1km controlled cycle ride"] },
+        { id: 'bv-disability', name: "Disability Awareness Activity Badge", cat: "Activity Badge", stages: ["Learn about assistance dogs", "Try a game with blindfolds or earplugs", "Identify accessible building ramps"] },
+        { id: 'bv-experiment', name: "Experiment Activity Badge", cat: "Activity Badge", stages: ["Perform 3 science experiments", "Record what happened", "Explain the science"] },
+        { id: 'bv-explore', name: "Explore Activity Badge", cat: "Activity Badge", stages: ["Plan a local walk", "Spot 5 landmarks", "Point out North with a compass"] },
+        { id: 'bv-faith', name: "Faith Activity Badge", cat: "Activity Badge", stages: ["Visit a place of worship", "Learn a religious prayer or story", "Reflect with the colony"] },
+        { id: 'bv-global', name: "Global Issues Activity Badge", cat: "Activity Badge", stages: ["Learn about clean water issues", "Find where local foods come from", "Recycle materials"] },
+        { id: 'bv-fitness', name: "Health & Fitness Activity Badge", cat: "Activity Badge", stages: ["Keep an active log for 2 weeks", "Explain healthy meal balanced plate", "Brush teeth correctly demo"] },
+        { id: 'bv-hobbies', name: "Hobbies Activity Badge", cat: "Activity Badge", stages: ["Show your hobby to the Colony", "Bring in items you made or used", "Explain how you practice it"] },
+        { id: 'bv-intl', name: "International Activity Badge", cat: "Activity Badge", stages: ["Learn words in 2 foreign languages", "Taste traditional food from another country", "Scout badge swap"] },
+        { id: 'bv-photo', name: "Photographer Activity Badge", cat: "Activity Badge", stages: ["Take 6 photos of animals or landmarks", "Create a digital collage", "Show photos to the Colony"] },
+        { id: 'bv-safety', name: "Safety Activity Badge", cat: "Activity Badge", stages: ["Explain home hazard dangers", "Practice safe road crossing", "Water safety green cross code"] },
+        { id: 'bv-space', name: "Space Activity Badge", cat: "Activity Badge", stages: ["Identify the solar system planets", "Spot the Moon phases", "Design a working spacecraft model"] },
+        { id: 'bv-sports', name: "Sports Activity Badge", cat: "Activity Badge", stages: ["Take part in an organized sport for 4 weeks", "Explain the rules", "Show good sportsmanship"] },
         ...UNIVERSAL_STAGED_BADGES
       ],
       cubs: [
         { id: 'cb-silver', name: "Chief Scout's Silver Award", cat: "Top Award", stages: ["Complete all 6 Challenge Awards", "Complete 6 Activity or Staged badges", "Lead a personal project"] },
-        { id: 'cb-adventure', name: "Our Adventure Challenge Award", cat: "Challenge Award", stages: ["2 Nights away camping under canvas", "2 adventurous activities", "Pack your rucksack", "Camp safety quiz"] },
+        { id: 'cb-adventure', name: "Our Adventure Challenge Award", cat: "Challenge Award", stages: ["2 Nights away camping under canvas", "2 adventurous activities (climbing, kayaking)", "Pack your rucksack", "Camp safety quiz"] },
+        { id: 'cb-world', name: "Our World Challenge Award", cat: "Challenge Award", stages: ["Community service (2 hrs)", "Environmental clean-up", "Sustainable Scouting workshop", "International celebration"] },
         { id: 'cb-skills', name: "Our Skills Challenge Award", cat: "Challenge Award", stages: ["Learn 3 new practical skills", "Tie reef knot & clove hitch", "Maintain fitness log"] },
+        { id: 'cb-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Participate in 6 team challenges", "Lead your Six through an exercise"] },
+        { id: 'cb-leader', name: "Team Leader Challenge Award", cat: "Challenge Award", stages: ["Serve as Sixer or Seconder", "Demonstrate inclusive leadership"] },
+        { id: 'cb-personal', name: "Personal Challenge Award", cat: "Challenge Award", stages: ["Complete 2 targets agreed with Akela"] },
+        { id: 'cb-animal', name: "Animal Carer Activity Badge", cat: "Activity Badge", stages: ["Care for an animal for 1 month", "Know proper food requirements", "Explain RSPCA/welfare checks"] },
+        { id: 'cb-artist', name: "Artist Activity Badge", cat: "Activity Badge", stages: ["Create 2 paintings or drawings", "Sculpt with clay or papier-mâché", "Present art to the Pack"] },
+        { id: 'cb-astronomer', name: "Astronomer Activity Badge", cat: "Activity Badge", stages: ["Identify Polaris & Ursa Major", "Explain red planet Mars", "Observe moon with telescope or binoculars"] },
+        { id: 'cb-athletics', name: "Athlete Activity Badge", cat: "Activity Badge", stages: ["Complete sprint 50m", "Complete distance run", "High or long jump target reached"] },
+        { id: 'cb-backwoods', name: "Backwoods Cooking Activity Badge", cat: "Activity Badge", stages: ["Light an altar fire with matches", "Cook twist or potatoes in embers without utensils", "Extinguish fire safely"] },
+        { id: 'cb-book', name: "Book Reader Activity Badge", cat: "Activity Badge", stages: ["Read 6 books over 3 months", "Review your favorite novel", "Show how to care for library books"] },
+        { id: 'cb-chef', name: "Chef Activity Badge", cat: "Activity Badge", stages: ["Food hygiene check", "Cook 2-course meal on camp", "Plan a healthy pack night menu", "Safe knife handling"] },
+        { id: 'cb-collector', name: "Collector Activity Badge", cat: "Activity Badge", stages: ["Show an organized collection", "Catalog entries", "Explain history of items"] },
+        { id: 'cb-communicator', name: "Communicator Activity Badge", cat: "Activity Badge", stages: ["Send and receive a simple Morse code message", "Use a two-way radio correctly", "Learn a 20-word phrase in another language"] },
+        { id: 'cb-cyclist', name: "Cyclist Activity Badge", cat: "Activity Badge", stages: ["Adjust saddle height & check tyre pressure", "Ride a 5km cycle route safely", "Explain highway code for cyclists"] },
+        { id: 'cb-diy', name: "DIY Activity Badge", cat: "Activity Badge", stages: ["Use a hammer and screwdriver safely", "Saw a piece of wood square", "Build a bird box or tool rack"] },
+        { id: 'cb-disability', name: "Disability Awareness Activity Badge", cat: "Activity Badge", stages: ["Learn the Braille alphabet", "Communicate without speaking", "Map accessibility barriers"] },
+        { id: 'cb-entertainer', name: "Entertainer Activity Badge", cat: "Activity Badge", stages: ["Perform magic tricks, comedy, or juggling", "Put on a puppet show or sketch for the Pack"] },
+        { id: 'cb-env', name: "Environmental Conservation Activity Badge", cat: "Activity Badge", stages: ["Take part in a conservation project (litter pick, tree planting)", "Monitor local bird or bug population"] },
+        { id: 'cb-equestrian', name: "Equestrian Activity Badge", cat: "Activity Badge", stages: ["Demonstrate how to approach a horse safely", "Groom a pony", "Ride at walk and trot"] },
+        { id: 'cb-firesafety', name: "Fire Safety Activity Badge", cat: "Activity Badge", stages: ["Demonstrate stop, drop, and roll", "Explain smoke alarm battery checks", "Plan a home fire escape route"] },
+        { id: 'cb-gardener', name: "Gardener Activity Badge", cat: "Activity Badge", stages: ["Grow flowers or vegetables from seed", "Weed a garden bed", "Identify 4 garden pest species"] },
+        { id: 'cb-hobbies', name: "Hobbies Activity Badge", cat: "Activity Badge", stages: ["Maintain a hobby for at least 4 months", "Show recent work to your leader"] },
+        { id: 'cb-homehelp', name: "Home Help Activity Badge", cat: "Activity Badge", stages: ["Iron a neckerchief", "Wash and dry dishes after a family meal", "Make your bed for a week"] },
+        { id: 'cb-homesafety', name: "Home Safety Activity Badge", cat: "Activity Badge", stages: ["Identify 6 home hazards", "Know 999 emergency info", "Show first aid for scalds"] },
+        { id: 'cb-intl', name: "International Activity Badge", cat: "Activity Badge", stages: ["Study another country's Scouting section", "Cook an authentic international recipe", "Learn currency exchange"] },
+        { id: 'cb-localknowledge', name: "Local Knowledge Activity Badge", cat: "Activity Badge", stages: ["Give directions to 3 local landmarks", "Know your local council history", "Produce a town guide leaflet"] },
+        { id: 'cb-martialarts', name: "Martial Arts Activity Badge", cat: "Activity Badge", stages: ["Train regularly in karate, judo, or taekwondo", "Show kata/forms and etiquette"] },
+        { id: 'cb-naturalist', name: "Naturalist Activity Badge", cat: "Activity Badge", stages: ["Identify 6 wild flowers or trees", "Spot 4 species of wild birds", "Keep a nature diary"] },
+        { id: 'cb-personalsafety', name: "Personal Safety Activity Badge", cat: "Activity Badge", stages: ["Explain online safety & password rules", "Stranger awareness", "Road safety"] },
+        { id: 'cb-photo', name: "Photographer Activity Badge", cat: "Activity Badge", stages: ["Take a series of 10 photos of a pack event", "Crop and edit digital images"] },
+        { id: 'cb-pioneer', name: "Pioneer Activity Badge", cat: "Activity Badge", stages: ["Tie clove hitch and timber hitch", "Construct a mini pioneering tripod or raft", "Store ropes correctly"] },
+        { id: 'cb-roadsafety', name: "Road Safety Activity Badge", cat: "Activity Badge", stages: ["Demonstrate Green Cross Code", "Night visibility reflective check", "Identify UK road signs"] },
+        { id: 'cb-scientist', name: "Scientist Activity Badge", cat: "Activity Badge", stages: ["Air pressure test", "Chemical reaction", "Magnet test"] },
+        { id: 'cb-skater', name: "Skater Activity Badge", cat: "Activity Badge", stages: ["Demonstrate balance on rollerblades or skateboard", "Perform controlled stop and turn with helmet"] },
+        { id: 'cb-sports', name: "Sports Enthusiast Activity Badge", cat: "Activity Badge", stages: ["Follow a sport through a full season", "Explain player positions and referee signs"] },
+        { id: 'cb-water', name: "Water Activities Badge", cat: "Activity Badge", stages: ["Explain safety rules on canal/river banks", "Put on a buoyancy aid correctly", "Take part in rowing or canoeing"] },
+        { id: 'cb-faiths', name: "World Faiths Activity Badge", cat: "Activity Badge", stages: ["Visit 2 different religious buildings", "Explain holy festival meanings", "Show respect for customs"] },
         ...UNIVERSAL_STAGED_BADGES
       ],
       scouts: [
         { id: 'sc-gold', name: "Chief Scout's Gold Award", cat: "Top Award", stages: ["Complete all 9 Challenge Awards", "Complete 6 Activity or Staged badges", "Expedition Challenge"] },
-        { id: 'sc-outdoor', name: "Outdoor Challenge Award", cat: "Challenge Award", stages: ["4 Nights away camping", "Build pioneering structures", "Track animal prints", "Axe and saw safety"] },
+        { id: 'sc-expedition', name: "Expedition Challenge Award", cat: "Challenge Award", stages: ["Plan 2-day self-sufficient route", "Navigate without adult escort", "Pitch overnight camp", "Cook on trail stoves"] },
+        { id: 'sc-outdoor', name: "Outdoor Challenge Award", cat: "Challenge Award", stages: ["4 Nights away camping", "Build pioneering structures", "Track animal prints", "Axe and saw safety qualification"] },
+        { id: 'sc-adventure', name: "Adventure Challenge Award", cat: "Challenge Award", stages: ["Take part in 4 adventurous pursuits (climbing, caving, abseiling, rafting)"] },
+        { id: 'sc-skills', name: "Skills Challenge Award", cat: "Challenge Award", stages: ["Learn complex knotting & splicing", "Maintain bicycle or gear", "Demonstrate life skill"] },
+        { id: 'sc-creative', name: "Creative Challenge Award", cat: "Challenge Award", stages: ["Produce performance or video", "Design promotional artwork", "Write camp newspaper"] },
+        { id: 'sc-world', name: "World Challenge Award", cat: "Challenge Award", stages: ["Investigate global issue", "Environmental conservation 4 hrs", "Scouts of the World discovery"] },
+        { id: 'sc-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Lead team under difficult conditions", "Solve troop initiative test"] },
+        { id: 'sc-leader', name: "Team Leader Challenge Award", cat: "Challenge Award", stages: ["Hold Patrol Leader or Assistant Patrol Leader position for 3 months"] },
+        { id: 'sc-personal', name: "Personal Challenge Award", cat: "Challenge Award", stages: ["Two personal breakthrough goals agreed with Scout Leader"] },
+        { id: 'sc-angler', name: "Angler Activity Badge", cat: "Activity Badge", stages: ["Know closed season rules", "Handle fish safely without injury", "Set up tackle and catch a fish"] },
+        { id: 'sc-astronomer', name: "Astronomer Activity Badge", cat: "Activity Badge", stages: ["Map constellations", "Explain solar/lunar eclipses", "Observe deep-sky object with scope"] },
+        { id: 'sc-athletics', name: "Athletics Activity Badge", cat: "Activity Badge", stages: ["Perform in 4 track and field events with standardized qualifying times/distances"] },
+        { id: 'sc-aviation', name: "Basic Aviation Activity Badge", cat: "Activity Badge", stages: ["Explain principles of lift and control surfaces", "Read an aeronautical sectional chart"] },
+        { id: 'sc-caver', name: "Caver Activity Badge", cat: "Activity Badge", stages: ["Explore natural cave system with permit leader", "Use headlamps and cave conservation rules"] },
+        { id: 'sc-chef', name: "Chef Activity Badge", cat: "Activity Badge", stages: ["Cook 3-course meal for Patrol on camp", "Maintain food safety standards", "Cost a weekend menu"] },
+        { id: 'sc-circus', name: "Circus Skills Activity Badge", cat: "Activity Badge", stages: ["Juggle 3 balls consistently", "Ride unicycle or walk tightrope/stilts", "Perform a routine"] },
+        { id: 'sc-communicator', name: "Communicator Activity Badge", cat: "Activity Badge", stages: ["Operate amateur radio equipment", "Send and read semaphore or phonetic alphabet"] },
+        { id: 'sc-craft', name: "Craft Activity Badge", cat: "Activity Badge", stages: ["Demonstrate leatherwork, pottery, metalwork, or wood turning with proper tool safety"] },
+        { id: 'sc-cyclist', name: "Cyclist Activity Badge", cat: "Activity Badge", stages: ["Fix a punctured tyre and adjust derailleur gears", "Plan and execute a 20km route"] },
+        { id: 'sc-diy', name: "DIY Activity Badge", cat: "Activity Badge", stages: ["Put up a shelf with wall plugs", "Rewire a 13A UK plug", "Fix a dripping tap washer"] },
+        { id: 'sc-electronics', name: "Electronics Activity Badge", cat: "Activity Badge", stages: ["Solder a printed circuit board component", "Explain resistors, capacitors, and transistors"] },
+        { id: 'sc-env', name: "Environmental Conservation Activity Badge", cat: "Activity Badge", stages: ["Undertake 8 hours of habitat management", "Survey invasive weed species"] },
+        { id: 'sc-equestrian', name: "Equestrian Activity Badge", cat: "Activity Badge", stages: ["Tack up, ride cross-country, and understand equine first aid"] },
+        { id: 'sc-firesafety', name: "Fire Safety Activity Badge", cat: "Activity Badge", stages: ["Demonstrate 4 fire extinguisher types", "Conduct hall fire drill", "Understand kitchen fire precautions"] },
+        { id: 'sc-forester', name: "Forester Activity Badge", cat: "Activity Badge", stages: ["Identify 10 species of British trees", "Use bow saws safely", "Coppice woodland area"] },
+        { id: 'sc-geocache', name: "Geocaching Activity Badge", cat: "Activity Badge", stages: ["Find 5 geocaches using GPS/app", "Create and hide a verified cache", "Understand Trackables"] },
+        { id: 'sc-heritage', name: "Heritage Activity Badge", cat: "Activity Badge", stages: ["Research historical monument or battle", "Act as a volunteer guide for an exhibition"] },
+        { id: 'sc-hillwalker', name: "Hill Walker Activity Badge", cat: "Activity Badge", stages: ["Take part in 2 hillwalking expeditions", "Understand mountain safety code", "Read contour lines & micro-navigation"] },
+        { id: 'sc-hobbies', name: "Hobbies Activity Badge", cat: "Activity Badge", stages: ["Pursue hobby for 6 months and present comprehensive output to Troop"] },
+        { id: 'sc-instructor', name: "Instructor Activity Badge", cat: "Activity Badge", stages: ["Instruct younger scouts in a core skill over 4 sessions", "Demonstrate coaching patience"] },
+        { id: 'sc-intl', name: "International Activity Badge", cat: "Activity Badge", stages: ["Engage with overseas Scout group via JOTA/JOTI", "Organize international cuisine evening"] },
+        { id: 'sc-kayaker', name: "Kayaker Activity Badge", cat: "Activity Badge", stages: ["Paddle 10km in kayak", "Perform wet exit and Eskimo rescue recovery"] },
+        { id: 'sc-lifesaver', name: "Lifesaver Activity Badge", cat: "Activity Badge", stages: ["Demonstrate throw-line rescue", "Perform contact tow in deep water", "CPR recertification"] },
+        { id: 'sc-martialarts', name: "Martial Arts Activity Badge", cat: "Activity Badge", stages: ["Achieve intermediate grading belt", "Demonstrate sparring control and respect"] },
+        { id: 'sc-masterarms', name: "Master at Arms Activity Badge", cat: "Activity Badge", stages: ["Complete certified air rifle, archery, or fencing course", "Demonstrate Range Safety compliance"] },
+        { id: 'sc-media', name: "Media Relations Activity Badge", cat: "Activity Badge", stages: ["Write press release for local newspaper", "Record podcast interview about Scouting"] },
+        { id: 'sc-mechanic', name: "Mechanic Activity Badge", cat: "Activity Badge", stages: ["Check car oil, coolant, tyre tread depths", "Explain internal combustion four-stroke cycle"] },
+        { id: 'sc-meteorologist', name: "Meteorologist Activity Badge", cat: "Activity Badge", stages: ["Record barometer, temperature & wind speed for a month", "Read isobar weather maps"] },
+        { id: 'sc-modelmaker', name: "Model Maker Activity Badge", cat: "Activity Badge", stages: ["Build scale flying aircraft or boat model from scratch", "Explain scale ratios"] },
+        { id: 'sc-motorgliding', name: "Motor Gliding Activity Badge", cat: "Activity Badge", stages: ["Take flight in motor glider", "Demonstrate pre-flight walkaround checks"] },
+        { id: 'sc-naturalist', name: "Naturalist Activity Badge", cat: "Activity Badge", stages: ["Identify 15 wildlife species", "Build an insect hotel or bat box", "Keep detailed field journal"] },
+        { id: 'sc-orienteer', name: "Orienteer Activity Badge", cat: "Activity Badge", stages: ["Complete competitive orienteering event", "Navigate complex terrain using 1:10,000 map"] },
+        { id: 'sc-photo', name: "Photographer Activity Badge", cat: "Activity Badge", stages: ["Produce photo portfolio demonstrating rule of thirds, aperture, and shutter speed"] },
+        { id: 'sc-pioneering', name: "Pioneering Activity Badge", cat: "Activity Badge", stages: ["Tie 6 knot types", "Square, diagonal, and shear lashings", "Build functional rope bridge/ballista", "Inspect rope coils"] },
+        { id: 'sc-quartermaster', name: "Quartermaster Activity Badge", cat: "Activity Badge", stages: ["Manage troop equipment store for 3 months", "Inspect and dry canvas tents", "Sharpen axes"] },
+        { id: 'sc-science', name: "Science and Technology Activity Badge", cat: "Activity Badge", stages: ["Build working electric motor or telescope", "Explain scientific principles to the Troop"] },
+        { id: 'sc-smallholder', name: "Smallholder Activity Badge", cat: "Activity Badge", stages: ["Care for poultry or farm livestock for 3 months", "Collect and grade produce"] },
+        { id: 'sc-snowsports', name: "Snowsports Activity Badge", cat: "Activity Badge", stages: ["Ski or snowboard parallel turns on blue/red slopes", "Understand avalanche safety"] },
+        { id: 'sc-streetsports', name: "Street Sports Activity Badge", cat: "Activity Badge", stages: ["Demonstrate ollie/kickflip or parkour roll safely", "Maintain skateboard or BMX"] },
+        { id: 'sc-survival', name: "Survival Skills Activity Badge", cat: "Activity Badge", stages: ["Construct natural bivouac shelter", "Sleep overnight without a tent", "Light fire without matches", "Purify water"] },
+        { id: 'sc-water', name: "Water Activities Badge", cat: "Activity Badge", stages: ["Helm a sailing boat or powerboat under instruction", "Understand marine buoyage rules"] },
+        { id: 'sc-faiths', name: "World Faiths Activity Badge", cat: "Activity Badge", stages: ["Attend multi-faith dialogue", "Explain religious fasting and celebration across 3 faiths"] },
+        { id: 'sc-writer', name: "Writer Activity Badge", cat: "Activity Badge", stages: ["Write 2 short stories, poems, or articles for publication", "Produce a one-act play"] },
         ...UNIVERSAL_STAGED_BADGES
       ],
       explorers: [
         { id: 'ex-platinum', name: "Chief Scout's Platinum Award", cat: "Top Award", stages: ["DofE Bronze or equivalent", "Complete 2 ICV list items", "4 Nights away camping"] },
+        { id: 'ex-diamond', name: "Chief Scout's Diamond Award", cat: "Top Award", stages: ["DofE Silver or equivalent", "Complete 3 ICV list items", "6 Nights away camping"] },
+        { id: 'ex-kings-scout', name: "King's Scout Award (KSA)", cat: "Top Award", stages: ["DofE Gold or equivalent", "Complete 4 ICV list items", "Deliver a major community presentation"] },
+        { id: 'ex-yl', name: "Young Leader Scheme", cat: "Scheme", stages: ["Module A: Prepare for take off", "Modules B through K completed", "Complete 4 section leadership missions"] },
+        { id: 'ex-air', name: "Air Activities Badge", cat: "Activity Badge", stages: ["Log 3 hours flying training", "Demonstrate aerobatic flight or gliding solo progress"] },
+        { id: 'ex-camper', name: "Camper Activity Badge", cat: "Activity Badge", stages: ["Camp for 20 nights away", "Lead camp cookery team", "Pitch and strike camp in storm conditions"] },
+        { id: 'ex-caving', name: "Caving Activity Badge", cat: "Activity Badge", stages: ["Complete 3 cave trips including vertical SRT ladder work", "Rig safety belays"] },
+        { id: 'ex-climbing', name: "Climbing Activity Badge", cat: "Activity Badge", stages: ["Lead climb single pitch rock route", "Belay safely with GriGri/ATC", "Abseil independently"] },
+        { id: 'ex-hillwalking', name: "Hill Walking Activity Badge", cat: "Activity Badge", stages: ["Plan and execute 3 mountain walks", "Navigation in zero visibility (night/fog)", "Wilderness safety protocol"] },
+        { id: 'ex-mountainbiking', name: "Mountain Biking Activity Badge", cat: "Activity Badge", stages: ["Ride red/black graded trail center route", "Perform trailside chain & brake repairs"] },
+        { id: 'ex-water', name: "Water Activities Badge", cat: "Activity Badge", stages: ["Achieve RYA Day Skipper or British Canoeing Leader award", "Handle emergency capsize recovery"] },
         ...UNIVERSAL_STAGED_BADGES
       ]
     };
@@ -258,51 +442,17 @@
       pendingApproval: false,
       attendanceDate: '',
 
-      groups: [
-        { id: 'grp-1', name: '1st Greenfield Scout Group', charityNo: '1098421', hq: 'The Scout Hut, Greenfield Rd, Stourbridge', gsl: 'Mark Davis' }
-      ],
-      sections: [
-        { id: 'squirrels', name: 'Squirrels', age: '4-6', color: '#c2410c', unitTerm: 'Drey' },
-        { id: 'beavers', name: 'Beavers', age: '6-8', color: '#2563eb', unitTerm: 'Colony' },
-        { id: 'cubs', name: 'Cubs', age: '8-10½', color: '#047857', unitTerm: 'Pack' },
-        { id: 'scouts', name: 'Scouts', age: '10½-14', color: '#0284c7', unitTerm: 'Troop' },
-        { id: 'explorers', name: 'Explorers', age: '14-18', color: '#7c3aed', unitTerm: 'Unit' }
-      ],
-      bankDetails: {
-        bankName: 'HSBC UK',
-        accountName: '1st Greenfield Scout Group',
-        sortCode: '40-43-15',
-        accountNumber: '71829384',
-        settlementNotes: 'Please quote Child Name + Section in payment reference.'
-      },
-      sectionPricing: {
-        squirrels: '£35.00',
-        beavers: '£38.00',
-        cubs: '£42.00',
-        scouts: '£45.00',
-        explorers: '£45.00'
-      },
+      groups: [],
+      sections: [],
+      bankDetails: { bankName: '', accountName: '', sortCode: '', accountNumber: '', settlementNotes: '' },
+      sectionPricing: {},
 
-      // Members with complete subs, DOB, gift aid & digital consent fields
-      members: [
-        { id: 'm1', section: 'cubs', firstName: 'Leo', lastName: 'Walker', patrol: 'Red Six', dob: '2016-04-12', school: 'Greenfield Primary', parent: 'Sarah Walker', parentEmail: 'sarah.walker@example.co.uk', phone: '07700 900551', address: '14 High St, Stourbridge, DY8 1AA', giftAid: true, giftAidDate: '2023-09-10', medical: 'Asthma (Salbutamol inhaler in bag)', alert: true, nhs: '948 201 9283', gp: 'Wollaston Health Centre', subsStatus: 'Paid', consents: { 'ev1': { signed: true, date: '2026-05-10', parentSignature: 'Sarah Walker' } }, badgeProgress: { 'cb-adventure': [true, true, true, true] } },
-        { id: 'm2', section: 'cubs', firstName: 'Jack', lastName: 'Smith', patrol: 'Blue Six', dob: '2016-01-20', school: 'St. Peter Primary', parent: 'Emma Smith', parentEmail: 'emma.smith@example.co.uk', phone: '07700 900224', address: '22 Church Lane, DY8 3AB', giftAid: true, giftAidDate: '2023-10-01', medical: 'Severe Nut Allergy (EpiPen carried)', alert: true, nhs: '839 102 4492', gp: 'Greenfield Surgery', subsStatus: 'Due', consents: {}, badgeProgress: { 'cb-silver': [true, false, false] } },
-        { id: 'm3', section: 'beavers', firstName: 'Maya', lastName: 'Walker', patrol: 'River Otters', dob: '2018-09-14', school: 'Greenfield Primary', parent: 'Sarah Walker', parentEmail: 'sarah.walker@example.co.uk', phone: '07700 900551', address: '14 High St, Stourbridge, DY8 1AA', giftAid: true, giftAidDate: '2024-02-15', medical: 'None', alert: false, nhs: '948 201 9284', gp: 'Wollaston Health Centre', subsStatus: 'Paid', consents: {}, badgeProgress: {} }
-      ],
+      leaders: [],
+      members: [],
       leftMembers: [],
-      leaders: [
-        { id: 'l1', name: 'Robert Jenkins', role: 'Cub Scout Leader (Akela)', email: 'akela@1stgreenfield.org.uk', phone: '07700 900112', approved: true, allSectionsAccess: false, sections: ['cubs'] },
-        { id: 'l2', name: 'David Evans', role: 'Beaver Leader', email: 'beavers@1stgreenfield.org.uk', phone: '07700 900334', approved: true, allSectionsAccess: false, sections: ['beavers'] }
-      ],
-      activities: [
-        { id: 'act-1', section: 'cubs', title: 'Square Lashing Pioneering Challenge', duration: '30 mins • Outdoor Field', badge: 'Our Skills Challenge', equip: '6x Spars, 12x Sisal Ropes', desc: 'Sixes work to construct a standing tripod flag stand.' }
-      ],
-      programme: [
-        { id: 'prg-1', section: 'cubs', date: '2026-10-26', title: 'Halloween Night Hike & Navigator Stage 2', lead: 'Akela (Robert)' }
-      ],
-      events: [
-        { id: 'ev1', title: 'Beaudesert Summer Camp 2026', date: '2026-07-15 to 2026-07-18', location: 'Beaudesert Outdoor Activity Centre, Cannock', cost: '£48.00', leader: 'Robert Jenkins', permit: 'Nights Away (Greenfield-04)', desc: 'Camp under canvas with climbing, kayaking and campfire cooking.' }
-      ],
+      activities: [],
+      programme: [],
+      events: [],
       parentRota: [
         { id: 'r1', date: '2026-10-26', section: 'cubs', duty: 'Tuck Shop & Tuck Table', helper: 'Sarah Walker' },
         { id: 'r2', date: '2026-11-02', section: 'cubs', duty: 'Fire Drill & Equipment Marshall', helper: 'Available (Click to volunteer)' }
@@ -311,35 +461,7 @@
       messages: []
     };
 
-    // --- LOCAL STORAGE / OFFLINE PWA CACHE ---
-    function saveLocal() {
-      try {
-        localStorage.setItem('district_mgr_state', JSON.stringify({
-          members: appState.members,
-          attendance: appState.attendance,
-          parentRota: appState.parentRota,
-          events: appState.events
-        }));
-        const syncEl = document.getElementById('sync-status');
-        if (syncEl) syncEl.style.display = 'inline-flex';
-      } catch (e) {
-        console.warn('LocalStorage quota or permission error:', e);
-      }
-    }
-
-    function loadLocal() {
-      try {
-        const saved = localStorage.getItem('district_mgr_state');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.members) appState.members = parsed.members;
-          if (parsed.attendance) appState.attendance = parsed.attendance;
-          if (parsed.parentRota) appState.parentRota = parsed.parentRota;
-        }
-      } catch (e) {}
-    }
-
-    // --- LEADER SECTION RESTRICTION ---
+    // --- SECTION RESTRICTIONS & AGES ---
     function getAvailableSections() {
       if (appState.role === 'super_admin' || appState.profile?.isAdmin) {
         return appState.sections;
@@ -355,7 +477,6 @@
       return appState.sections;
     }
 
-    // --- AGE & SECTION MOVE-UP ENGINE ---
     function calculateAge(dobStr) {
       if (!dobStr) return 0;
       const dob = new Date(dobStr);
@@ -372,8 +493,211 @@
       return { eligible: false, target: '', ageYears: age.toFixed(1) };
     }
 
-    // --- APP CONTROLLERS ---
+    // --- NETLIFY IDENTITY + SERVER INTEGRATION ---
+    async function loadData() {
+      const data = escapeDeep(await api('GET', `data?group=${encodeURIComponent(appState.currentGroupId || '')}&date=${localDate()}`));
+      appState.profile = data.profile;
+      appState.pendingApproval = data.pending;
+      if (data.pending) return;
+
+      appState.currentGroupId = data.currentGroupId;
+      appState.groups = data.groups;
+      appState.sections = data.sections;
+      appState.sectionPricing = data.sectionPricing;
+      appState.bankDetails = data.bankDetails || appState.bankDetails;
+      appState.leaders = data.leaders;
+      appState.members = data.members;
+      appState.leftMembers = data.leftMembers;
+      appState.activities = data.activities;
+      appState.programme = data.programme;
+      appState.events = data.events;
+      appState.messages = data.messages;
+      appState.attendance = data.attendance;
+      appState.attendanceDate = data.attendanceDate;
+
+      appState.sections.forEach(s => { if (!BADGES[s.id]) BADGES[s.id] = [...UNIVERSAL_STAGED_BADGES]; });
+
+      const available = getAvailableSections();
+      if (!available.find(s => s.id === appState.section)) {
+        appState.section = available[0]?.id || '';
+      }
+    }
+
+    async function refreshApp() {
+      if (!appState.isAuthenticated) return;
+      try {
+        await loadData();
+      } catch (err) {
+        alert('Could not load data: ' + err.message);
+      }
+      renderGroupSelector();
+      renderSectionBar();
+      updateGroupSubtitle();
+      renderTabs();
+      renderContent();
+    }
+
+    function updateGroupSubtitle() {
+      const grp = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0];
+      document.getElementById('group-subtitle').innerHTML = grp ? `${grp.name} • Charity #${grp.charityNo}` : 'Group Setup';
+    }
+
+    function authErrorMessage(err) {
+      if (window.identity && err instanceof identity.MissingIdentityError) return 'Sign-in is not switched on for this site yet.';
+      if (window.identity && err instanceof identity.AuthError) {
+        if (err.status === 401) return 'Invalid email or password (or your email is not confirmed yet).';
+        if (err.status === 403) return 'New sign-ups are currently closed. Ask your Group Lead Volunteer for an invite.';
+        if (err.status === 422) return 'Please check your email and password (passwords need at least 6 characters).';
+      }
+      return err.message || 'Something went wrong. Please try again.';
+    }
+
+    async function initApp() {
+      try {
+        const dir = escapeDeep(await api('GET', 'directory'));
+        appState.groups = dir.groups;
+        appState.sections = dir.sections;
+      } catch (err) {
+        console.error(err);
+      }
+
+      try {
+        const cb = await identity.handleAuthCallback();
+        if (cb?.type === 'confirmation') alert('Email confirmed. Welcome to District Manager!');
+        if (cb?.type === 'recovery') await promptNewPassword('Choose a new password for your account:');
+        if (cb?.type === 'invite') {
+          const pw = prompt('Welcome! Choose a password for your new account (at least 6 characters):');
+          if (pw) await identity.acceptInvite(cb.token, pw);
+        }
+      } catch (err) {
+        alert(authErrorMessage(err));
+      }
+
+      appState.loading = false;
+      const user = await identity.getUser();
+      if (user) await enterApp();
+      else renderContent();
+    }
+
+    async function enterApp() {
+      appState.isAuthenticated = true;
+      appState.loading = true;
+      renderContent();
+      try {
+        await loadData();
+      } catch (err) {
+        alert('Could not load your account: ' + err.message);
+        appState.loading = false;
+        await handleSignOut();
+        return;
+      }
+      appState.loading = false;
+
+      const p = appState.profile;
+      appState.currentUser = {
+        email: p.email,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        name: `${p.firstName} ${p.lastName}`.trim() || p.email,
+        userType: p.userType,
+        groupId: p.groupId,
+        section: p.section
+      };
+      appState.role = p.isAdmin ? 'super_admin' : (p.userType === 'leader' ? 'leader' : 'parent');
+
+      const permittedSections = getAvailableSections();
+      if (p.section && permittedSections.find(s => s.id === p.section)) {
+        appState.section = p.section;
+      } else if (permittedSections.length > 0) {
+        appState.section = permittedSections[0].id;
+      }
+
+      const firstB = (BADGES[appState.section] || BADGES.cubs || [])[0];
+      appState.selectedBadgeId = firstB ? firstB.id : '';
+
+      document.getElementById('main-header').style.display = 'block';
+      document.querySelector('.persona-bar').style.display = p.isAdmin ? 'flex' : 'none';
+      document.getElementById('group-selector-box').style.display = p.isAdmin ? 'flex' : 'none';
+
+      if (appState.pendingApproval) {
+        document.getElementById('main-nav').style.display = 'none';
+        document.getElementById('section-bar').style.display = 'none';
+        appState.tab = 'pending_approval';
+        renderTabs();
+        renderContent();
+        return;
+      }
+
+      document.getElementById('main-nav').style.display = 'block';
+      document.getElementById('section-bar').style.display = appState.role === 'parent' ? 'none' : 'block';
+      renderGroupSelector();
+      renderSectionBar();
+      updateGroupSubtitle();
+
+      if (p.isAdmin) setRole('super_admin');
+      else if (appState.role === 'leader') setTab(p.phone === 'TBC' ? 'leader_profile' : 'census');
+      else setTab(appState.members.length ? 'parent_portal' : 'parent_profile_setup');
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value.trim();
+      const pass = document.getElementById('auth-pass').value;
+      const btn = e.submitter;
+      if (btn) btn.disabled = true;
+
+      try {
+        if (appState.authTab === 'signin') {
+          await identity.login(email, pass);
+          await enterApp();
+        } else {
+          const fn = document.getElementById('reg-fn').value.trim();
+          const ln = document.getElementById('reg-ln').value.trim();
+          await identity.signup(email, pass, {
+            full_name: `${fn} ${ln}`,
+            first_name: fn,
+            last_name: ln,
+            account_type: document.getElementById('reg-type').value,
+            group_id: document.getElementById('reg-group').value,
+            section: document.getElementById('reg-section').value
+          });
+          if (await identity.getUser()) {
+            await enterApp();
+          } else {
+            alert('Account created! Please check your email for confirmation, then sign in.');
+            setAuthTab('signin');
+          }
+        }
+      } catch (err) {
+        alert(authErrorMessage(err));
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function handleSignOut() {
+      try {
+        if (window.identity) await identity.logout();
+      } catch (err) {
+        console.error(err);
+      }
+      appState.isAuthenticated = false;
+      appState.currentUser = null;
+      appState.profile = null;
+      document.getElementById('main-header').style.display = 'none';
+      document.getElementById('main-nav').style.display = 'none';
+      document.getElementById('section-bar').style.display = 'none';
+      renderTabs();
+      renderContent();
+    }
+
+    function setAuthTab(t) {
+      appState.authTab = t;
+      renderContent();
+    }
+
     function setRole(r) {
+      if (!appState.profile?.isAdmin) return;
       appState.role = r;
       document.getElementById('btn-admin').className = 'btn-persona' + (r === 'super_admin' ? ' active-admin' : '');
       document.getElementById('btn-leader').className = 'btn-persona' + (r === 'leader' ? ' active-leader' : '');
@@ -423,9 +747,19 @@
       renderContent();
     }
 
+    function setBadgeFilter(cat) {
+      appState.badgeFilter = cat;
+      const allB = BADGES[appState.section] || BADGES.cubs || [];
+      const filtered = cat === 'ALL' ? allB : allB.filter(b => b.cat.toLowerCase().includes(cat.toLowerCase()));
+      if (filtered.length && !filtered.find(b => b.id === appState.selectedBadgeId)) {
+        appState.selectedBadgeId = filtered[0].id;
+      }
+      renderContent();
+    }
+
     function switchGroup(groupId) {
       appState.currentGroupId = groupId;
-      renderContent();
+      refreshApp();
     }
 
     function openAppModal(htmlContent) {
@@ -436,9 +770,9 @@
       document.getElementById('app-modal').classList.remove('open');
     }
 
-    // --- MODAL: OFFICIAL INTOUCH HOME CONTACT PACK (POR RULE 9.3) ---
+    // --- MODAL: OFFICIAL INTOUCH EMERGENCY PACK ---
     function openInTouchModal() {
-      const curGroup = appState.groups[0];
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0] || { name: 'Scout Group' };
       const activeMembers = appState.members.filter(m => m.section === appState.section);
 
       const rows = activeMembers.map((m, idx) => `
@@ -448,7 +782,7 @@
           <td>${m.parent}<br><strong>${m.phone}</strong></td>
           <td>${m.address}</td>
           <td>${m.medical}</td>
-          <td>NHS: ${m.nhs}<br>GP: ${m.gp}</td>
+          <td>NHS: ${m.nhs || 'TBC'}<br>GP: ${m.gp || 'Local GP'}</td>
         </tr>
       `).join('');
 
@@ -468,9 +802,8 @@
               <div style="font-size: 10px; color: #475569;">Group: <strong>${curGroup.name}</strong> • Section: <strong>${appState.section.toUpperCase()}</strong></div>
             </div>
             <div style="text-align: right; font-size: 10px;">
-              <div>Home Contact: <strong>David Evans (07700 900334)</strong></div>
-              <div>Leader in Charge: <strong>Robert Jenkins (07700 900112)</strong></div>
-              <div>Nearest Hospital A&E: <strong>Russells Hall Hospital, Dudley (DY1 2HQ)</strong></div>
+              <div>Section Leader: <strong>${appState.currentUser?.name || 'Duty Leader'}</strong></div>
+              <div>Duty Date: <strong>${localDate()}</strong></div>
             </div>
           </div>
 
@@ -493,7 +826,7 @@
       `);
     }
 
-    // --- MODAL: QUARTERMASTER BADGE ORDER (SHOPPING LIST) ---
+    // --- MODAL: QUARTERMASTER BADGE ORDER ---
     function openBadgeOrderModal() {
       const activeMembers = appState.members.filter(m => m.section === appState.section);
       const badges = BADGES[appState.section] || [];
@@ -520,7 +853,7 @@
         </div>
         <div class="modal-body">
           <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 8px;">Order Summary for ${appState.section.toUpperCase()}</h3>
-          <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">List of badges ready for presentation earned by section members.</p>
+          <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">Badges 100% completed and ready for presentation.</p>
           
           <table style="margin-bottom: 16px;">
             <thead>
@@ -543,91 +876,13 @@
 
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <a href="https://shop.scouts.org.uk/badges" target="_blank" class="btn btn-dark">Open Scout Store ↗</a>
-            <button class="btn btn-primary" onclick="alert('Badge order checklist copied to clipboard!'); closeAppModal();">Copy Order Sheet</button>
+            <button class="btn btn-primary" onclick="alert('Badge order checklist copied!'); closeAppModal();">Copy Order Sheet</button>
           </div>
         </div>
       `);
     }
 
-    // --- MODAL: DIGITAL POR ACTIVITY CONSENT FORM (WITH PARENT E-SIGN) ---
-    function openPORConsentModal(evtId) {
-      const evt = appState.events.find(x => x.id === evtId) || appState.events[0];
-      const curGroup = appState.groups[0];
-      const myKids = appState.members.filter(m => m.parentEmail === (appState.currentUser?.email || 'sarah.walker@example.co.uk'));
-      const activeKid = myKids.find(k => k.id === appState.selectedChildId) || myKids[0] || appState.members[0];
-
-      const isSigned = activeKid.consents && activeKid.consents[evtId]?.signed;
-
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">POR Rule 9.1 Parental Consent Verification</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body" id="printable-form">
-          <div style="border-bottom: 2px solid var(--slate-900); padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between;">
-            <div>
-              <div style="font-size: 10px; font-weight: 900; color: var(--emerald-800); text-transform: uppercase;">The Scout Association Official Consent</div>
-              <h2 style="font-size: 15px; font-weight: 900;">POR-EV1 ACTIVITY CONSENT</h2>
-              <div style="font-size: 10px; color: var(--slate-500);">${curGroup.name}</div>
-            </div>
-            <div style="text-align: right;">
-              <div>Status: ${isSigned ? '<span class="tag tag-green">✓ Consent Signed</span>' : '<span class="tag tag-amber">Awaiting Signature</span>'}</div>
-            </div>
-          </div>
-
-          <div class="grid-2" style="margin-bottom: 12px;">
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <strong>Event:</strong> ${evt.title}<br>
-              <strong>Dates:</strong> ${evt.date}<br>
-              <strong>Location:</strong> ${evt.location}
-            </div>
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <strong>Young Person:</strong> ${activeKid.firstName} ${activeKid.lastName}<br>
-              <strong>Emergency Phone:</strong> ${activeKid.phone}<br>
-              <strong>Medical:</strong> ${activeKid.medical}
-            </div>
-          </div>
-
-          <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; font-size: 11px; line-height: 1.4; margin-bottom: 16px;">
-            I give permission for <strong>${activeKid.firstName}</strong> to take part in this activity. I authorize the Leader in Charge to give emergency medical consent if I cannot be contacted immediately.
-          </div>
-
-          ${isSigned ? `
-            <div style="background: var(--emerald-50); border: 1px solid var(--emerald-100); padding: 10px; border-radius: 6px; font-size: 11px; color: var(--emerald-800);">
-              ✓ <strong>Signed Electronically:</strong> ${activeKid.consents[evtId].parentSignature} on ${activeKid.consents[evtId].date}
-            </div>
-          ` : `
-            <form onsubmit="handleSignConsent(event, '${activeKid.id}', '${evt.id}')">
-              <div class="form-group">
-                <label>Type Parent / Guardian Full Name to Sign *</label>
-                <input class="form-control" id="sig-name" required value="${activeKid.parent}" />
-              </div>
-              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 10px;">
-                ✍️ Authorize & Submit E-Signature
-              </button>
-            </form>
-          `}
-        </div>
-      `);
-    }
-
-    function handleSignConsent(e, memberId, evtId) {
-      e.preventDefault();
-      const m = appState.members.find(x => x.id === memberId);
-      if (!m) return;
-      if (!m.consents) m.consents = {};
-      m.consents[evtId] = {
-        signed: true,
-        date: new Date().toISOString().split('T')[0],
-        parentSignature: document.getElementById('sig-name').value
-      };
-      saveLocal();
-      closeAppModal();
-      alert('Activity consent submitted and recorded on event manifest!');
-      renderContent();
-    }
-
-    // --- MODAL: UNIFORM BADGE PLACEMENT GUIDE ---
+    // --- MODAL: UNIFORM BADGE GUIDE ---
     function openUniformGuideModal() {
       openAppModal(`
         <div class="modal-header">
@@ -635,7 +890,7 @@
           <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
         </div>
         <div class="modal-body">
-          <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 12px;">Where do my child's badges go?</h3>
+          <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 12px;">Where do badges go on the uniform?</h3>
           <div class="grid-3" style="margin-bottom: 16px;">
             <div style="border: 1px solid var(--slate-200); padding: 12px; border-radius: 8px;">
               <span class="tag tag-blue" style="margin-bottom: 4px;">Right Sleeve</span>
@@ -661,7 +916,7 @@
               <h4 style="font-size: 13px; font-weight: 800; margin: 4px 0;">Membership & Awards</h4>
               <p style="font-size: 11px; color: var(--slate-600); line-height: 1.4;">
                 • World Scout Membership Badge (Left chest)<br>
-                • Chief Scout's Bronze / Silver / Gold / Diamond / King's Scout Award (Above membership badge)<br>
+                • Chief Scout's Bronze / Silver / Gold / King's Scout Award (Above membership badge)<br>
                 • Moving On Award
               </p>
             </div>
@@ -675,8 +930,7 @@
 
     // --- ENROL CHILD MODAL ---
     function openAddChildModal() {
-      const parentName = appState.currentUser?.name || 'Sarah Walker';
-      const parentEmail = appState.currentUser?.email || 'sarah.walker@example.co.uk';
+      const parentName = appState.currentUser ? `${appState.currentUser.firstName} ${appState.currentUser.lastName}`.trim() : '';
 
       openAppModal(`
         <div class="modal-header">
@@ -757,50 +1011,136 @@
       `);
     }
 
-    function handleDirectAddMember(e) {
+    async function handleDirectAddMember(e) {
       e.preventDefault();
+      const btn = e.submitter;
+      if (btn) btn.disabled = true;
+
+      const chosenSection = document.getElementById('nm-sec') ? document.getElementById('nm-sec').value : appState.section;
       const newM = {
-        id: 'm_' + Date.now(),
-        section: document.getElementById('nm-sec').value,
+        groupId: appState.currentGroupId,
+        section: chosenSection,
         firstName: document.getElementById('nm-fn').value,
         lastName: document.getElementById('nm-ln').value,
         patrol: document.getElementById('nm-patrol').value,
         dob: document.getElementById('nm-dob').value,
         school: document.getElementById('nm-school')?.value || '',
         parent: document.getElementById('nm-parent').value,
-        parentEmail: appState.currentUser?.email || 'sarah.walker@example.co.uk',
+        parentEmail: appState.currentUser?.email || '',
         phone: document.getElementById('nm-phone').value,
         address: document.getElementById('nm-address').value,
         giftAid: document.getElementById('nm-giftaid').checked,
-        giftAidDate: new Date().toISOString().split('T')[0],
-        medical: document.getElementById('nm-med').value.trim() || 'None',
-        alert: document.getElementById('nm-med').value.trim().length > 4,
-        nhs: 'TBC',
-        gp: 'Local Surgery',
-        subsStatus: 'Due',
-        consents: {},
-        badgeProgress: {}
+        medical: document.getElementById('nm-med').value.trim() || 'None'
       };
 
-      appState.members.push(newM);
-      appState.selectedChildId = newM.id;
-      saveLocal();
-      closeAppModal();
-      alert(`Enrolled ${newM.firstName} into ${newM.section.toUpperCase()}!`);
-      renderContent();
+      try {
+        const created = await api('POST', 'members', newM);
+        closeAppModal();
+        if (created?.id) appState.selectedChildId = created.id;
+        if (appState.tab === 'parent_profile_setup') appState.tab = 'parent_portal';
+      } catch (err) {
+        alert('Could not save: ' + err.message);
+        if (btn) btn.disabled = false;
+        return;
+      }
+      await refreshApp();
     }
 
-    // --- SUBS STATUS TOGGLE ---
+    // --- ACTIVITIES MODALS ---
+    function openAddActivityModal() {
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">Add New Activity / Game to Bank</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <form onsubmit="handleSaveActivity(event)">
+            <div class="form-group">
+              <label>Activity Title *</label>
+              <input class="form-control" id="act-title" required placeholder="e.g. Knot Relay Game" />
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Duration & Location *</label>
+                <input class="form-control" id="act-duration" required placeholder="e.g. 20 mins • Main Hall" />
+              </div>
+              <div class="form-group">
+                <label>Linked Badge</label>
+                <input class="form-control" id="act-badge" placeholder="e.g. Skills Challenge Award" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Equipment Needed</label>
+              <input class="form-control" id="act-equip" placeholder="e.g. 6x Practice ropes" />
+            </div>
+            <div class="form-group">
+              <label>Instructions & Safety</label>
+              <textarea class="form-control" id="act-desc" rows="3" required placeholder="Describe activity rules..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save Activity</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function handleSaveActivity(e) {
+      e.preventDefault();
+      const newAct = {
+        groupId: appState.currentGroupId,
+        section: appState.section,
+        title: document.getElementById('act-title').value,
+        duration: document.getElementById('act-duration').value,
+        badge: document.getElementById('act-badge').value,
+        equip: document.getElementById('act-equip').value,
+        desc: document.getElementById('act-desc').value
+      };
+      closeAppModal();
+      saveAndRefresh(api('POST', 'activities', newAct));
+    }
+
+    function deleteActivity(actId) {
+      if (confirm('Delete this activity from your bank?')) {
+        saveAndRefresh(api('DELETE', `activities/${actId}`));
+      }
+    }
+
+    async function addActivityToProgramme(actId) {
+      const act = appState.activities.find(a => a.id === actId);
+      if (!act) return;
+      const d = prompt('Enter meeting date (YYYY-MM-DD):', localDate());
+      if (!d) return;
+
+      try {
+        await api('POST', 'programme', {
+          groupId: appState.currentGroupId,
+          section: appState.section,
+          date: d,
+          title: `Meeting: ${unescapeHtml(act.title)}`,
+          lead: appState.currentUser?.name || 'Section Leader',
+          activitiesLinked: [unescapeHtml(act.title), unescapeHtml(act.badge)]
+        });
+        alert(`Activity scheduled for ${d}`);
+      } catch (err) {
+        alert('Could not save: ' + err.message);
+      }
+      await refreshApp();
+      setTab('events');
+    }
+
+    // --- SUBS STATUS & HMRC CSV EXPORT ---
     function cycleSubsStatus(memberId) {
       const m = appState.members.find(x => x.id === memberId);
       if (!m) return;
       const cycle = { 'Due': 'Paid', 'Paid': 'Overdue', 'Overdue': 'Due' };
-      m.subsStatus = cycle[m.subsStatus || 'Due'];
-      saveLocal();
+      const nextStatus = cycle[m.subsStatus || 'Due'];
+      m.subsStatus = nextStatus;
       renderContent();
+      api('PATCH', `members/${memberId}`, { subsStatus: nextStatus }).catch(console.error);
     }
 
-    // --- HMRC BULK CSV EXPORT ---
     function exportHMRCClaimFile() {
       const eligible = appState.members.filter(m => m.giftAid);
       if (!eligible.length) {
@@ -816,89 +1156,42 @@
         const postcodeMatch = address.match(/[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}/i);
         const postcode = postcodeMatch ? postcodeMatch[0] : 'DY8 1AA';
         const street = address.split(',')[0] || '14 High St';
-        csv += `"Mr/Mrs","${fn}","${ln}","${street}","${postcode}",42.00,"${m.giftAidDate}"\n`;
+        csv += `"Mr/Mrs","${fn}","${ln}","${street}","${postcode}",42.00,"${m.giftAidDate || localDate()}"\n`;
       });
 
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.setAttribute('href', url);
-      a.setAttribute('download', `HMRC_Charities_Online_GiftAid_${new Date().toISOString().split('T')[0]}.csv`);
+      a.setAttribute('download', `HMRC_Charities_Online_GiftAid_${localDate()}.csv`);
       a.click();
     }
 
-    // --- PARENT HELPER SIGN UP ---
     function volunteerForRota(rotaId) {
       const r = appState.parentRota.find(x => x.id === rotaId);
       if (!r) return;
-      const volunteerName = prompt('Enter your name to sign up for this session helper duty:', appState.currentUser?.name || 'Sarah Walker');
+      const volunteerName = prompt('Enter your name to sign up for this session helper duty:', appState.currentUser?.name || '');
       if (volunteerName) {
         r.helper = volunteerName;
-        saveLocal();
         alert('Thank you for supporting your Section Leaders!');
         renderContent();
       }
     }
 
-    // --- URGENT BROADCAST SENDER ---
-    function openBroadcastModal() {
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">🚨 Send Urgent Broadcast (Push & SMS Simulation)</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="handleSendBroadcast(event)">
-            <div class="form-group">
-              <label>Target Section</label>
-              <input class="form-control" value="${appState.section.toUpperCase()}" readonly style="background: var(--slate-100);" />
-            </div>
-            <div class="form-group">
-              <label>Urgent Alert Subject</label>
-              <input class="form-control" id="bc-title" required placeholder="e.g. Coach delayed by 30 mins / Wet weather venue change" />
-            </div>
-            <div class="form-group">
-              <label>Message Text</label>
-              <textarea class="form-control" id="bc-body" rows="3" required placeholder="Parents: Return time from Beaudesert is now 17:30 due to M6 traffic..."></textarea>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-danger">🚨 Send Immediate Alert</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    function handleSendBroadcast(e) {
-      e.preventDefault();
-      const title = document.getElementById('bc-title').value;
-      const body = document.getElementById('bc-body').value;
-      appState.messages.unshift({
-        sender: 'LEADER BROADCAST',
-        recipient: `All ${appState.section.toUpperCase()} Parents`,
-        subject: `🚨 [URGENT] ${title}`,
-        body: body,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      });
-      closeAppModal();
-      alert('Urgent broadcast transmitted to all section parents.');
-      renderContent();
-    }
-
-    // --- ATTENDANCE TOGGLE ---
+    // --- ATTENDANCE ROLL-CALL ---
     function cycleAttendance(id) {
       const order = { 'Unmarked': 'Present', 'Present': 'Absent', 'Absent': 'Late', 'Late': 'Explained', 'Explained': 'Present' };
       appState.attendance[id] = order[appState.attendance[id] || 'Unmarked'];
-      saveLocal();
       renderContent();
+      api('PUT', 'attendance', { date: appState.attendanceDate, entries: [{ memberId: id, status: appState.attendance[id] }] })
+        .catch(err => { alert('Could not save attendance: ' + err.message); refreshApp(); });
     }
 
     function markAllPresent() {
       const activeMembers = appState.members.filter(m => m.section === appState.section);
       activeMembers.forEach(m => appState.attendance[m.id] = 'Present');
-      saveLocal();
       renderContent();
+      saveAndRefresh(api('PUT', 'attendance', { date: appState.attendanceDate, entries: activeMembers.map(m => ({ memberId: m.id, status: 'Present' })) }));
     }
 
     // --- BADGE PROGRESSION TOGGLE ---
@@ -907,12 +1200,25 @@
       if (!m) return;
       if (!m.badgeProgress) m.badgeProgress = {};
       if (!m.badgeProgress[badgeId]) {
-        const b = (BADGES[appState.section] || []).find(x => x.id === badgeId);
+        const b = (BADGES[appState.section] || BADGES.cubs || []).find(x => x.id === badgeId);
         m.badgeProgress[badgeId] = new Array(b ? b.stages.length : 6).fill(false);
       }
       m.badgeProgress[badgeId][stageIdx] = !m.badgeProgress[badgeId][stageIdx];
-      saveLocal();
       renderContent();
+      api('PATCH', `members/${m.id}`, { badgeProgress: m.badgeProgress }).catch(console.error);
+    }
+
+    function markAllStagesForKid(memberId, badgeId) {
+      const m = appState.members.find(x => x.id === memberId);
+      const b = (BADGES[appState.section] || BADGES.cubs || []).find(x => x.id === badgeId);
+      if (!m || !b) return;
+
+      const cur = m.badgeProgress[badgeId] || [];
+      const allDone = cur.length === b.stages.length && cur.every(Boolean);
+
+      m.badgeProgress[badgeId] = new Array(b.stages.length).fill(!allDone);
+      renderContent();
+      api('PATCH', `members/${m.id}`, { badgeProgress: m.badgeProgress }).catch(console.error);
     }
 
     function renderGroupSelector() {
@@ -957,7 +1263,8 @@
         navEl.innerHTML = `
           <button class="nav-tab ${appState.tab === 'census' ? 'active' : ''}" onclick="setTab('census')">Group Census</button>
           <button class="nav-tab ${appState.tab === 'young_people' ? 'active' : ''}" onclick="setTab('young_people')">Young People (${appState.members.filter(m => m.section === appState.section).length})</button>
-          <button class="nav-tab ${appState.tab === 'badges' ? 'active' : ''}" onclick="setTab('badges')">Official Badges Matrix</button>
+          <button class="nav-tab ${appState.tab === 'badges' ? 'active' : ''}" onclick="setTab('badges')">Official Badges Matrix (${(BADGES[appState.section] || []).length})</button>
+          <button class="nav-tab ${appState.tab === 'activities' ? 'active' : ''}" onclick="setTab('activities')">Activities & Games Bank (${appState.activities.filter(a => a.section === appState.section).length})</button>
           <button class="nav-tab ${appState.tab === 'payments' ? 'active' : ''}" onclick="setTab('payments')">Subs & Gift Aid</button>
           <button class="nav-tab ${appState.tab === 'events' ? 'active' : ''}" onclick="setTab('events')">Programme & Events</button>
           <button class="nav-tab ${appState.tab === 'messages' ? 'active' : ''}" onclick="setTab('messages')">Broadcasts (${appState.messages.length})</button>
@@ -967,41 +1274,123 @@
 
     function renderContent() {
       const viewEl = document.getElementById('app-view');
-      const curGroup = appState.groups[0];
 
-      // TAB: PARENT PORTAL (MULTI-CHILD + BADGE UNIFORM GUIDE + DIGITAL SIGNATURE)
+      if (appState.loading) {
+        viewEl.innerHTML = `<div class="card" style="max-width: 420px; margin: 40px auto; text-align: center; color: var(--slate-500);">Loading District Manager…</div>`;
+        return;
+      }
+
+      if (!appState.isAuthenticated) {
+        viewEl.innerHTML = `
+          <div class="auth-container">
+            <div class="auth-header">
+              <div class="logo-badge" style="margin: 0 auto 12px auto; width: 48px; height: 48px; font-size: 22px;">DM</div>
+              <h2 style="font-size: 20px; font-weight: 900;">District Manager</h2>
+              <p style="font-size: 12px; color: var(--slate-400); margin-top: 4px;">UK Scout Group & District Operations Portal</p>
+            </div>
+
+            <div class="auth-body">
+              <div class="auth-tab-bar">
+                <button class="auth-tab-btn ${appState.authTab === 'signin' ? 'active' : ''}" onclick="setAuthTab('signin')">Sign In</button>
+                <button class="auth-tab-btn ${appState.authTab === 'register' ? 'active' : ''}" onclick="setAuthTab('register')">Create Account</button>
+              </div>
+
+              <form onsubmit="handleAuthSubmit(event)">
+                ${appState.authTab === 'register' ? `
+                  <div class="grid-2">
+                    <div class="form-group">
+                      <label>First Name *</label>
+                      <input class="form-control" id="reg-fn" required placeholder="e.g. Sarah" />
+                    </div>
+                    <div class="form-group">
+                      <label>Last Name *</label>
+                      <input class="form-control" id="reg-ln" required placeholder="e.g. Walker" />
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label>Account Role *</label>
+                    <select class="form-control" id="reg-type" required>
+                      <option value="parent">Parent / Guardian (Enrolling Child)</option>
+                      <option value="leader">Section Leader / Adult Volunteer</option>
+                    </select>
+                  </div>
+
+                  <div class="grid-2">
+                    <div class="form-group">
+                      <label>Scout Group *</label>
+                      <select class="form-control" id="reg-group" required>
+                        ${appState.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('')}
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Target Section *</label>
+                      <select class="form-control" id="reg-section" required>
+                        ${appState.sections.map(s => `<option value="${s.id}">${s.name} (${s.age})</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <div class="form-group">
+                  <label>Email Address *</label>
+                  <input type="email" class="form-control" id="auth-email" required placeholder="name@example.co.uk" />
+                </div>
+
+                <div class="form-group">
+                  <label>Password *</label>
+                  <input type="password" class="form-control" id="auth-pass" required minlength="6" placeholder="••••••••" />
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px; font-size: 13px;">
+                  ${appState.authTab === 'signin' ? 'Sign In to Portal' : 'Register & Continue to Profile Setup →'}
+                </button>
+              </form>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0] || { name: 'Scout Group', hq: 'Scout HQ', charityNo: '1098421' };
+
+      // TAB: PARENT PORTAL
       if (appState.tab === 'parent_portal') {
-        const userEmail = appState.currentUser?.email || 'sarah.walker@example.co.uk';
-        const myKids = appState.members.filter(m => m.parentEmail === userEmail || m.parent.toLowerCase().includes('walker'));
+        const userEmail = appState.currentUser?.email || '';
+        const myKids = appState.members.filter(m => (m.parentEmail && m.parentEmail === userEmail) || (m.parent && appState.currentUser?.name && m.parent.toLowerCase().includes(appState.currentUser.name.toLowerCase())));
 
-        if (!appState.selectedChildId && myKids.length > 0) {
-          appState.selectedChildId = myKids[0].id;
+        const displayKids = myKids.length ? myKids : appState.members.slice(0, 1);
+
+        if (!appState.selectedChildId && displayKids.length > 0) {
+          appState.selectedChildId = displayKids[0].id;
         }
 
-        const activeKid = myKids.find(k => k.id === appState.selectedChildId) || myKids[0] || appState.members[0];
-        const kidSection = appState.sections.find(s => s.id === activeKid.section);
-        const kidBadges = BADGES[activeKid.section] || BADGES.cubs;
+        const activeKid = displayKids.find(k => k.id === appState.selectedChildId) || displayKids[0];
+        const kidSection = appState.sections.find(s => s.id === activeKid?.section);
+        const kidBadges = BADGES[activeKid?.section] || BADGES.cubs;
 
         viewEl.innerHTML = `
-          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px; overflow-x: auto; flex-wrap: wrap;">
-            <span style="font-size: 11px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Your Registered Children:</span>
-            ${myKids.map(k => `
-              <button class="kid-tab-pill ${k.id === activeKid.id ? 'active' : ''}" onclick="appState.selectedChildId='${k.id}'; renderContent();">
-                👤 ${k.firstName} ${k.lastName} (${k.section.toUpperCase()})
+          ${displayKids.length > 0 ? `
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px; overflow-x: auto; flex-wrap: wrap;">
+              <span style="font-size: 11px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Your Registered Children:</span>
+              ${displayKids.map(k => `
+                <button class="kid-tab-pill ${k.id === activeKid?.id ? 'active' : ''}" onclick="appState.selectedChildId='${k.id}'; renderContent();">
+                  👤 ${k.firstName} ${k.lastName} (${(k.section || '').toUpperCase()})
+                </button>
+              `).join('')}
+              <button class="btn btn-outline" style="border-radius: 20px; padding: 5px 12px; font-size: 11px;" onclick="openAddChildModal()">
+                + Add Another Child
               </button>
-            `).join('')}
-            <button class="btn btn-outline" style="border-radius: 20px; padding: 5px 12px; font-size: 11px;" onclick="openAddChildModal()">
-              + Add Another Child
-            </button>
-          </div>
+            </div>
+          ` : ''}
 
           <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
               <div>
                 <span class="tag tag-purple">Parent Portal</span>
-                <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">${activeKid.firstName} ${activeKid.lastName}</h2>
+                <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">${activeKid ? `${activeKid.firstName} ${activeKid.lastName}` : 'Welcome Parent'}</h2>
                 <p style="font-size: 12px; color: var(--slate-500);">
-                  ${activeKid.patrol} • Section: <strong>${activeKid.section.toUpperCase()}</strong> (${kidSection?.name}) • Group: ${curGroup.name}
+                  ${activeKid ? `${activeKid.patrol} • Section: <strong>${(activeKid.section || '').toUpperCase()}</strong> (${kidSection?.name || 'Section'})` : 'No young person enrolled yet.'}
                 </p>
               </div>
               <div style="display: flex; gap: 8px;">
@@ -1011,500 +1400,9 @@
             </div>
           </div>
 
-          <div class="grid-2">
-            <div class="card">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
-                <h3 style="font-size: 15px; font-weight: 800;">Member Dossier & Subs Status</h3>
-                <span class="tag ${activeKid.subsStatus === 'Paid' ? 'tag-green' : 'tag-amber'}">Subs: ${activeKid.subsStatus}</span>
-              </div>
-              <div style="font-size: 12px; display: grid; gap: 8px;">
-                <div><strong>DOB:</strong> ${activeKid.dob} (Age ${calculateAge(activeKid.dob).toFixed(1)})</div>
-                <div><strong>School:</strong> ${activeKid.school}</div>
-                <div><strong>Address:</strong> ${activeKid.address}</div>
-                <div><strong>Medical / Allergies:</strong> ${activeKid.medical}</div>
-                <div><strong>Gift Aid Claim:</strong> ${activeKid.giftAid ? '✓ Active (HMRC 25% tax reclaimed)' : 'No'}</div>
-              </div>
-
-              <div style="margin-top: 16px; padding: 12px; background: var(--slate-50); border-radius: 8px; border: 1px solid var(--slate-200);">
-                <div style="font-size: 11px; font-weight: 800; color: var(--slate-600); margin-bottom: 4px;">GROUP BANK PAYMENT REFERENCE:</div>
-                <div style="font-size: 12px; font-family: monospace;">Sort: ${appState.bankDetails.sortCode} | Acc: ${appState.bankDetails.accountNumber}</div>
-                <div style="font-size: 10px; color: var(--slate-500); margin-top: 4px;">Reference: <strong>${activeKid.firstName.toUpperCase()}-${activeKid.section.toUpperCase()}</strong></div>
-              </div>
-            </div>
-
-            <div class="card">
-              <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">Earned Badges & In-Progress Awards</h3>
-              <div style="max-height: 250px; overflow-y: auto;">
-                ${kidBadges.map(b => {
-                  const prog = activeKid.badgeProgress?.[b.id] || [];
-                  const done = prog.filter(Boolean).length;
-                  const total = b.stages.length;
-                  const pct = Math.round((done / total) * 100);
-                  return `
-                    <div style="margin-bottom: 10px; border-bottom: 1px solid var(--slate-100); padding-bottom: 8px;">
-                      <div style="display:flex; justify-content:space-between; font-size:12px;">
-                        <strong>${b.name}</strong>
-                        <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}%</span>
-                      </div>
-                      <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">
-                        ${done} of ${total} criteria passed • <span style="color:var(--slate-400);">${b.cat}</span>
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      // TAB: PARENT VOLUNTEER ROTA (4-WEEK CHALLENGE)
-      if (appState.tab === 'parent_rota') {
-        const rotaRows = appState.parentRota.map(r => `
-          <tr>
-            <td><strong>${r.date}</strong></td>
-            <td>${r.section.toUpperCase()}</td>
-            <td>${r.duty}</td>
-            <td>${r.helper.includes('Available') ? `<span class="tag tag-amber">${r.helper}</span>` : `<span class="tag tag-green">✓ ${r.helper}</span>`}</td>
-            <td style="text-align: right;">
-              ${r.helper.includes('Available') ? `<button class="btn btn-primary" style="padding: 4px 8px;" onclick="volunteerForRota('${r.id}')">Volunteer for this night</button>` : ''}
-            </td>
-          </tr>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div class="card">
-            <h2 style="font-size: 18px; font-weight: 900;">Parent Volunteer Rota ("4-Week Challenge")</h2>
-            <p style="font-size: 12px; color: var(--slate-500); margin-top: 4px;">
-              Support our adult leaders! Sign up for a helper slot during term meetings.
-            </p>
-          </div>
-          <div class="card" style="padding: 0; overflow-x: auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Session Date</th>
-                  <th>Section</th>
-                  <th>Helper Duty</th>
-                  <th>Volunteer</th>
-                  <th style="text-align: right;">Action</th>
-                </tr>
-              </thead>
-              <tbody>${rotaRows}</tbody>
-            </table>
-          </div>
-        `;
-        return;
-      }
-
-      // TAB 1: GROUP CENSUS & MOVE-UP WARNINGS
-      if (appState.tab === 'census') {
-        const allowed = getAvailableSections();
-        const moveUps = appState.members.map(m => ({ member: m, move: checkMoveUpStatus(m) })).filter(x => x.move.eligible);
-
-        const secCards = allowed.map(s => {
-          const youthCount = appState.members.filter(m => m.section === s.id).length;
-          return `
-            <div class="card">
-              <div style="color: ${s.color}; font-weight: 800; font-size: 11px; text-transform: uppercase;">${s.name}</div>
-              <div style="font-size: 26px; font-weight: 900; margin: 4px 0;">${youthCount} Active</div>
-              <div style="font-size: 11px; color: var(--slate-400);">Age ${s.age} • Subs: ${appState.sectionPricing[s.id] || '£40.00'}</div>
-            </div>
-          `;
-        }).join('');
-
-        const moveUpRows = moveUps.map(mu => `
-          <tr>
-            <td><strong>${mu.member.firstName} ${mu.member.lastName}</strong></td>
-            <td>${mu.member.section.toUpperCase()} (Age ${mu.move.ageYears})</td>
-            <td><span class="tag tag-amber">Ready for ${mu.move.target}</span></td>
-            <td>Leader handover notification due</td>
-          </tr>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h2 style="font-size: 20px; font-weight: 900;">${curGroup.name} Operations Census</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">${curGroup.hq} • Charity #${curGroup.charityNo}</p>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <span class="tag tag-green" style="font-size: 12px; padding: 6px 12px;">Active Roll: ${appState.members.length}</span>
-              <span class="tag tag-blue" style="font-size: 12px; padding: 6px 12px;">Gift Aid: ${appState.members.filter(m => m.giftAid).length}</span>
-            </div>
-          </div>
-
-          <div class="grid-5">${secCards}</div>
-
-          <div class="card" style="margin-top: 16px;">
-            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 8px;">🚀 Section Transitions ("Moving-Up Soon" Engine)</h3>
-            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 12px;">Young people approaching age threshold for their next section.</p>
-            <div style="overflow-x: auto;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Young Person</th>
-                    <th>Current Section</th>
-                    <th>Transition Recommendation</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>${moveUpRows.length ? moveUpRows : '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--slate-400);">No young people currently due for section transfer.</td></tr>'}</tbody>
-              </table>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      // TAB 2: YOUNG PEOPLE (WITH INSTANT LIVE SEARCH + INTOUCH ACTIONS)
-      if (appState.tab === 'young_people') {
-        const query = (appState.searchQuery || '').toLowerCase();
-        const sectionMembers = appState.members.filter(m => m.section === appState.section);
-        const filteredMembers = sectionMembers.filter(m => 
-          `${m.firstName} ${m.lastName}`.toLowerCase().includes(query) ||
-          (m.patrol && m.patrol.toLowerCase().includes(query)) ||
-          (m.school && m.school.toLowerCase().includes(query))
-        );
-
-        const subNav = `
-          <div class="subnav">
-            <button class="subnav-btn ${appState.ypSubView === 'directory' ? 'active' : ''}" onclick="appState.ypSubView='directory'; renderContent();">Active Members (${sectionMembers.length})</button>
-            <button class="subnav-btn ${appState.ypSubView === 'attendance' ? 'active' : ''}" onclick="appState.ypSubView='attendance'; renderContent();">Attendance Roll-Call</button>
-            <button class="subnav-btn alert ${appState.ypSubView === 'medication' ? 'active' : ''}" onclick="appState.ypSubView='medication'; renderContent();">🚨 Medical Flags</button>
-          </div>
-        `;
-
-        let subContent = '';
-        if (appState.ypSubView === 'directory') {
-          const rows = filteredMembers.map(m => `
-            <tr>
-              <td>
-                <div style="font-weight: 800; font-size: 13px;">${m.firstName} ${m.lastName}</div>
-                <div style="font-size: 11px; color: var(--slate-500);">${m.patrol} • DOB: ${m.dob} • ${m.school}</div>
-              </td>
-              <td>
-                <div style="font-weight: 700;">${m.parent}</div>
-                <div style="font-size: 11px; color: var(--slate-500);">${m.phone}</div>
-              </td>
-              <td>${m.giftAid ? '<span class="tag tag-green">✓ HMRC</span>' : '<span class="tag tag-blue">No</span>'}</td>
-              <td>${m.alert ? `<div class="tag tag-red">${m.medical}</div>` : `<span class="tag tag-green">None</span>`}</td>
-              <td style="text-align: right; white-space: nowrap;">
-                <button class="btn btn-outline" style="padding: 4px 8px;" onclick="cycleSubsStatus('${m.id}')">Subs: ${m.subsStatus}</button>
-              </td>
-            </tr>
-          `).join('');
-
-          subContent = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-              <div class="search-box">
-                <span>🔍</span>
-                <input placeholder="Filter member name, patrol or school..." value="${appState.searchQuery}" oninput="appState.searchQuery=this.value; renderContent();" />
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-dark" onclick="openInTouchModal()">📋 POR 9.3 InTouch Pack</button>
-                <button class="btn btn-outline" onclick="openBadgeOrderModal()">🛍️ Badge Shopping List</button>
-                <button class="btn btn-primary" onclick="openAddChildModal()">+ Add New Member</button>
-              </div>
-            </div>
-
-            <div class="card" style="padding: 0; overflow-x: auto;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Young Person</th>
-                    <th>Emergency Contact</th>
-                    <th>Gift Aid</th>
-                    <th>Medical Flags</th>
-                    <th style="text-align: right;">Subs Ledger</th>
-                  </tr>
-                </thead>
-                <tbody>${rows.length ? rows : '<tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--slate-400);">No members match your search criteria.</td></tr>'}</tbody>
-              </table>
-            </div>
-          `;
-        } else if (appState.ypSubView === 'attendance') {
-          const cards = filteredMembers.map(m => `
-            <div class="att-card ${appState.attendance[m.id] || 'Unmarked'}" onclick="cycleAttendance('${m.id}')">
-              <div>
-                <div style="font-weight: 800; font-size: 13px;">${m.firstName} ${m.lastName}</div>
-                <div style="font-size: 11px; opacity: 0.8;">${m.patrol}</div>
-              </div>
-              <span class="att-badge">${appState.attendance[m.id] || 'Unmarked'}</span>
-            </div>
-          `).join('');
-
-          subContent = `
-            <div class="card">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <div>
-                  <h3 style="font-size: 16px; font-weight: 800;">Offline-Ready Attendance Roll-Call</h3>
-                  <p style="font-size: 12px; color: var(--slate-500);">Tap card to cycle: Present → Absent → Late → Explained</p>
-                </div>
-                <button class="btn btn-primary" onclick="markAllPresent()">Mark All Present</button>
-              </div>
-              <div class="grid-2">${cards}</div>
-            </div>
-          `;
-        } else {
-          const alertCards = filteredMembers.filter(m => m.alert).map(m => `
-            <div class="card" style="border: 1px solid var(--red-200); background: #fff5f5;">
-              <h4 style="font-size: 16px; font-weight: 900; color: var(--red-800);">${m.firstName} ${m.lastName}</h4>
-              <div style="font-size: 11px; color: var(--slate-600); margin-bottom: 6px;">${m.patrol} • NHS: ${m.nhs}</div>
-              <div style="background: white; padding: 8px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;">
-                <strong>Medical Detail:</strong> ${m.medical}
-              </div>
-              <a href="tel:${m.phone}" class="btn btn-danger" style="text-decoration: none;">Call Next of Kin (${m.parent})</a>
-            </div>
-          `).join('');
-
-          subContent = `<div class="grid-2">${alertCards.length ? alertCards : '<p style="color:var(--slate-400);">No medical alerts reported in this section.</p>'}</div>`;
-        }
-
-        viewEl.innerHTML = `${subNav}${subContent}`;
-        return;
-      }
-
-      // TAB 3: BADGES MATRIX
-      if (appState.tab === 'badges') {
-        const allSectionBadges = BADGES[appState.section] || [];
-        let curBadge = allSectionBadges.find(b => b.id === appState.selectedBadgeId) || allSectionBadges[0] || { id: 'default', name: 'Badge', cat: 'Badge', stages: ['Stage 1'] };
-        const activeMembers = appState.members.filter(m => m.section === appState.section);
-
-        const thStages = curBadge.stages.map((st, i) => `
-          <th style="text-align: center; min-width: 100px; font-size: 11px;" title="${st}">
-            <div style="color: var(--slate-400); font-size: 10px; font-weight: 800;">CRITERIA ${i+1}</div>
-            ${st}
-          </th>
-        `).join('');
-
-        const kidRows = activeMembers.map(m => {
-          const progress = m.badgeProgress?.[curBadge.id] || [];
-          const doneCount = progress.filter(Boolean).length;
-          const total = curBadge.stages.length;
-          const pct = Math.round((doneCount / total) * 100);
-
-          const stageToggles = curBadge.stages.map((st, idx) => {
-            const isDone = progress[idx] || false;
-            return `
-              <td style="text-align: center;">
-                <div style="display: flex; justify-content: center;">
-                  <div class="chk-stage ${isDone ? 'checked' : ''}" onclick="toggleKidStage('${m.id}', '${curBadge.id}', ${idx})">
-                    ${isDone ? '✓' : ''}
-                  </div>
-                </div>
-              </td>
-            `;
-          }).join('');
-
-          return `
-            <tr>
-              <td>
-                <div style="font-weight: 800;">${m.firstName} ${m.lastName}</div>
-                <div style="font-size: 10px; color: var(--slate-500);">${m.patrol}</div>
-              </td>
-              <td style="text-align: center;">
-                <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}% (${doneCount}/${total})</span>
-              </td>
-              ${stageToggles}
-            </tr>
-          `;
-        }).join('');
-
-        viewEl.innerHTML = `
-          <div class="card" style="margin-bottom: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-              <div>
-                <span class="tag tag-purple">${curBadge.cat}</span>
-                <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">${curBadge.name}</h2>
-                <p style="font-size: 12px; color: var(--slate-500);">${curBadge.stages.length} syllabus criteria • Section: ${appState.section.toUpperCase()}</p>
-              </div>
-
-              <div style="display: flex; gap: 8px;">
-                <select class="form-control" style="font-weight: 700;" onchange="selectBadge(this.value)">
-                  ${allSectionBadges.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
-                </select>
-                <button class="btn btn-primary" onclick="openBadgeOrderModal()">Order Badges</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="card" style="padding: 0; overflow-x: auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th style="min-width: 160px;">Young Person</th>
-                  <th style="text-align: center; width: 90px;">Progress</th>
-                  ${thStages}
-                </tr>
-              </thead>
-              <tbody>${kidRows}</tbody>
-            </table>
-          </div>
-        `;
-        return;
-      }
-
-      // TAB 4: PAYMENTS, SUBS & HMRC GIFT AID
-      if (appState.tab === 'payments') {
-        const giftAidMembers = appState.members.filter(m => m.giftAid);
-        const sectionMembers = appState.members.filter(m => m.section === appState.section);
-        const paidCount = sectionMembers.filter(m => m.subsStatus === 'Paid').length;
-        const totalReclaim = (giftAidMembers.length * 42 * 0.25).toFixed(2);
-
-        viewEl.innerHTML = `
-          <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <h2 style="font-size: 20px; font-weight: 900;">Section Subs & HMRC Gift Aid</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">${curGroup.name} • Subs Rate: ${appState.sectionPricing[appState.section]} / term</p>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-primary" onclick="exportHMRCClaimFile()">📥 Download HMRC Bulk Schedule CSV</button>
-            </div>
-          </div>
-
-          <div class="grid-3">
-            <div class="card">
-              <span class="tag tag-green">Subs Collection</span>
-              <div style="font-size: 24px; font-weight: 900; margin: 6px 0;">${paidCount} / ${sectionMembers.length} Paid</div>
-              <div style="font-size: 11px; color: var(--slate-500);">${sectionMembers.length - paidCount} members outstanding</div>
-            </div>
-            <div class="card">
-              <span class="tag tag-blue">Gift Aid Reclaim</span>
-              <div style="font-size: 24px; font-weight: 900; margin: 6px 0;">£${totalReclaim}</div>
-              <div style="font-size: 11px; color: var(--slate-500);">${giftAidMembers.length} valid HMRC taxpayer declarations</div>
-            </div>
-            <div class="card">
-              <span class="tag tag-purple">Settlement Bank</span>
-              <div style="font-size: 13px; font-weight: 900; margin-top: 6px;">${appState.bankDetails.bankName}</div>
-              <div style="font-size: 11px; font-family: monospace;">${appState.bankDetails.sortCode} | ${appState.bankDetails.accountNumber}</div>
-            </div>
-          </div>
-
-          <div class="card" style="padding: 0; overflow-x: auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Member Name</th>
-                  <th>Parent / Donor</th>
-                  <th>Postcode</th>
-                  <th>HMRC Tax Status</th>
-                  <th style="text-align: right;">Subs Ledger Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${sectionMembers.map(m => `
-                  <tr>
-                    <td><strong>${m.firstName} ${m.lastName}</strong></td>
-                    <td>${m.parent}</td>
-                    <td>${m.address.split(',').pop() || 'DY8 1AA'}</td>
-                    <td>${m.giftAid ? '<span class="tag tag-green">✓ Valid Declaration</span>' : '<span class="tag tag-blue">Not Claimed</span>'}</td>
-                    <td style="text-align: right;">
-                      <button class="btn ${m.subsStatus === 'Paid' ? 'btn-primary' : 'btn-outline'}" style="padding: 4px 10px;" onclick="cycleSubsStatus('${m.id}')">
-                        ${m.subsStatus === 'Paid' ? '✓ Paid' : m.subsStatus === 'Overdue' ? '⚠️ Overdue' : 'Due (£' + appState.sectionPricing[appState.section] + ')'}
-                      </button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `;
-        return;
-      }
-
-      // TAB 5: PROGRAMME, CAMPS & DIGITAL CONSENTS
-      if (appState.tab === 'events') {
-        const eventsList = appState.events.map(e => `
-          <div class="card" style="margin-bottom: 0;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-              <div>
-                <h3 style="font-size: 16px; font-weight: 800;">${e.title}</h3>
-                <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">${e.date} • ${e.location}</div>
-              </div>
-              <span class="tag tag-green">${e.cost}</span>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-600); margin: 8px 0;">${e.desc}</p>
-            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--slate-100); padding-top:10px;">
-              <span style="font-size: 11px; color: var(--slate-400);">Permit: ${e.permit}</span>
-              <button class="btn btn-primary" onclick="openPORConsentModal('${e.id}')">POR-EV1 Consent</button>
-            </div>
-          </div>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <div>
-              <h2 style="font-size: 18px; font-weight: 900;">Section Programme & Camp Logistics</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">Review calendar schedules and digital parent consent records.</p>
-            </div>
-          </div>
-          <div class="grid-2">${eventsList}</div>
-        `;
-        return;
-      }
-
-      // TAB 6: MESSAGES & URGENT BROADCASTS
-      if (appState.tab === 'messages') {
-        const msgList = appState.messages.map(m => `
-          <div class="card" style="margin-bottom: 12px; border-left: 4px solid ${m.subject.includes('URGENT') ? '#b91c1c' : 'var(--primary)'};">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-              <div>
-                <strong style="font-size: 14px;">${m.subject}</strong>
-                <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">From: ${m.sender} → To: ${m.recipient}</div>
-              </div>
-              <span style="font-size: 11px; color: var(--slate-400);">${m.timestamp}</span>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-700); background: var(--slate-50); padding: 10px; border-radius: 6px; margin-top: 8px;">
-              ${m.body}
-            </p>
-          </div>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <div>
-              <h2 style="font-size: 18px; font-weight: 900;">Section Notifications & Broadcasts</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">Emergency broadcast alerts and section communications.</p>
-            </div>
-            <button class="btn btn-danger" onclick="openBroadcastModal()">🚨 Urgent Alert</button>
-          </div>
-          <div>${msgList.length ? msgList : '<div class="card"><p style="color:var(--slate-400);">No broadcasts dispatched.</p></div>'}</div>
-        `;
-        return;
-      }
-    }
-
-    // --- INITIALIZATION ---
-    function initApp() {
-      loadLocal();
-      appState.isAuthenticated = true;
-      appState.currentUser = {
-        name: 'Sarah Walker',
-        email: 'sarah.walker@example.co.uk',
-        userType: 'admin'
-      };
-      appState.profile = { isAdmin: true };
-      appState.currentGroupId = appState.groups[0].id;
-      appState.section = 'cubs';
-
-      document.getElementById('main-header').style.display = 'block';
-      document.getElementById('main-nav').style.display = 'block';
-      document.getElementById('section-bar').style.display = 'block';
-
-      renderGroupSelector();
-      renderSectionBar();
-      renderTabs();
-      renderContent();
-    }
-
-    function handleSignOut() {
-      alert('Signed out.');
-      location.reload();
-    }
-
-    initApp();
-  </script>
-</body>
-</html>
+          ${activeKid ? `
+            <div class="grid-2">
+              <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                  <h3 style="font-size: 15px; font-weight: 800;">Member Dossier & Subs Status</h3>
+                  <span class="tag ${activeKid.subs
