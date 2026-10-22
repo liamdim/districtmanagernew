@@ -132,3 +132,10 @@ export const messages = pgTable("messages", {
   body: text().notNull(),
   createdAt: createdAt(),
 });
+
+// Role titles a Super Admin can assign to leaders (e.g. "Section Leader", "Group Lead Volunteer").
+export const leaderRoles = pgTable("leader_roles", {
+  id: id(),
+  name: text().notNull().unique(),
+  createdAt: createdAt(),
+});

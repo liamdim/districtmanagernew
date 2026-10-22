@@ -7,6 +7,7 @@ import {
   attendance,
   events,
   groups,
+  leaderRoles,
   members,
   messages,
   profiles,
@@ -156,6 +157,7 @@ const toMember = (m: Member) => {
 };
 
 const toProfile = (s: Session) => ({
+  userId: s.user.id,
   email: s.profile.email,
   firstName: s.profile.firstName,
   lastName: s.profile.lastName,
@@ -165,8 +167,25 @@ const toProfile = (s: Session) => ({
   section: s.profile.section,
   leaderTitle: s.profile.leaderTitle,
   leaderApproved: s.profile.leaderApproved,
+  allSectionsAccess: s.profile.allSectionsAccess,
+  sections: s.profile.leaderSections,
   isAdmin: s.isAdmin,
 });
+
+// Everyone with an account (leaders and parents), as shown in Super Admin Settings.
+const toPerson = (p: Profile, childCount: number) => ({
+  ...toLeader(p),
+  firstName: p.firstName,
+  lastName: p.lastName,
+  accountType: p.accountType,
+  childCount,
+});
+
+const parsePrice = (v: unknown): string => {
+  const n = Number(String(v ?? "").replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n) || n < 0 || n > 100000) fail(422, "Please enter a valid price.");
+  return `£${n.toFixed(2)}`;
+};
 
 const formatTimestamp = (d: Date) => d.toISOString().replace("T", " ").substring(0, 16);
 
@@ -236,18 +255,30 @@ async function getData(s: Session, url: URL) {
     );
   }
 
-  const [activityRows, programmeRows, eventRows, messageRows, attendanceRows, leaderRows] = await Promise.all([
-    staff ? db.select().from(activities).where(eq(activities.groupId, groupId)).orderBy(desc(activities.createdAt)) : [],
-    db.select().from(programme).where(eq(programme.groupId, groupId)).orderBy(desc(programme.createdAt)),
+  // Leaders only see activities and programme entries for the sections they've been given.
+  const scopeList = leaderScope === null ? null : leaderScope.length ? leaderScope : ["__none__"];
+  const activityFilter = s.isLeader && scopeList ? and(eq(activities.groupId, groupId), inArray(activities.section, scopeList)) : eq(activities.groupId, groupId);
+  const programmeFilter = s.isLeader && scopeList ? and(eq(programme.groupId, groupId), inArray(programme.section, scopeList)) : eq(programme.groupId, groupId);
+
+  const [activityRows, programmeRows, eventRows, messageRows, attendanceRows, peopleRows, roleRows] = await Promise.all([
+    staff ? db.select().from(activities).where(activityFilter).orderBy(desc(activities.createdAt)) : [],
+    db.select().from(programme).where(programmeFilter).orderBy(desc(programme.createdAt)),
     db.select().from(events).where(eq(events.groupId, groupId)).orderBy(desc(events.createdAt)),
     db.select().from(messages).where(messageFilter).orderBy(desc(messages.createdAt)),
     staff && memberIds.length
       ? db.select().from(attendance).where(and(eq(attendance.date, today), inArray(attendance.memberId, memberIds)))
       : [],
     s.isAdmin
-      ? db.select().from(profiles).where(and(eq(profiles.accountType, "leader"), eq(profiles.groupId, groupId))).orderBy(asc(profiles.createdAt))
+      ? db.select().from(profiles).where(or(eq(profiles.groupId, groupId), isNull(profiles.groupId))).orderBy(asc(profiles.createdAt))
       : [],
+    s.isAdmin ? db.select().from(leaderRoles).orderBy(asc(leaderRoles.name)) : [],
   ]);
+
+  const childCounts = new Map<string, number>();
+  if (s.isAdmin) {
+    const linked = await db.select({ parentUserId: members.parentUserId }).from(members).where(eq(members.groupId, groupId));
+    for (const r of linked) if (r.parentUserId) childCounts.set(r.parentUserId, (childCounts.get(r.parentUserId) ?? 0) + 1);
+  }
 
   return {
     profile: toProfile(s),
@@ -260,7 +291,7 @@ async function getData(s: Session, url: URL) {
       hq: g.hq,
       gsl: g.gsl,
     })),
-    sections: sectionRows.map(({ createdAt, price, ...rest }) => rest),
+    sections: sectionRows.map(({ createdAt, price, ...rest }) => (s.isAdmin ? { ...rest, price } : rest)),
     sectionPricing: Object.fromEntries(sectionRows.map((sec) => [sec.id, sec.price])),
     bankDetails: (() => {
       const g = allGroups.find((x) => x.id === groupId);
@@ -273,7 +304,9 @@ async function getData(s: Session, url: URL) {
         settlementNotes: g.settlementNotes,
       };
     })(),
-    leaders: leaderRows.map(toLeader),
+    leaders: peopleRows.filter((p) => p.accountType === "leader").map(toLeader),
+    people: peopleRows.map((p) => toPerson(p, childCounts.get(p.userId) ?? 0)),
+    leaderRoles: roleRows.map((r) => ({ id: r.id, name: r.name })),
     members: active.map(toMember),
     leftMembers: left.map(toMember),
     activities: activityRows.map(({ createdAt, groupId, ...rest }) => rest),
@@ -388,14 +421,21 @@ async function saveAttendance(s: Session, body: any) {
   return { ok: true };
 }
 
+function requireSectionAccess(s: Session, section: string) {
+  const scope = leaderSectionScope(s);
+  if (scope !== null && !scope.includes(section)) fail(403, "You don't have access to that section.");
+}
+
 async function createActivity(s: Session, body: any) {
   requireStaff(s);
   const groupId = await resolveGroup(s, str(body.groupId));
+  const section = reqStr(body.section, "Section", 100);
+  requireSectionAccess(s, section);
   const [a] = await db
     .insert(activities)
     .values({
       groupId,
-      section: reqStr(body.section, "Section", 100),
+      section,
       title: reqStr(body.title, "Title", 200),
       duration: str(body.duration, 200),
       badge: str(body.badge, 200) || "Scout Skill",
@@ -410,6 +450,7 @@ async function deleteActivity(s: Session, id: string) {
   requireStaff(s);
   const [a] = await db.select().from(activities).where(eq(activities.id, id));
   if (!a || (!s.isAdmin && a.groupId !== s.profile.groupId)) fail(404, "Activity not found.");
+  requireSectionAccess(s, a!.section);
   await db.delete(activities).where(eq(activities.id, id));
   return { ok: true };
 }
@@ -417,11 +458,13 @@ async function deleteActivity(s: Session, id: string) {
 async function createProgrammeEntry(s: Session, body: any) {
   requireStaff(s);
   const groupId = await resolveGroup(s, str(body.groupId));
+  const section = reqStr(body.section, "Section", 100);
+  requireSectionAccess(s, section);
   const [p] = await db
     .insert(programme)
     .values({
       groupId,
-      section: reqStr(body.section, "Section", 100),
+      section,
       date: reqStr(body.date, "Date", 50),
       title: reqStr(body.title, "Title", 300),
       lead: str(body.lead, 200) || "Section Leader",
@@ -507,18 +550,20 @@ async function createGroup(s: Session, body: any) {
   return { id: g.id, name: g.name, charityNo: g.charityNo, hq: g.hq, gsl: g.gsl };
 }
 
-async function updateGroupBank(s: Session, id: string, body: any) {
+async function updateGroup(s: Session, id: string, body: any) {
   requireAdmin(s);
-  await db
-    .update(groups)
-    .set({
-      bankName: str(body.bankName, 200),
-      accountName: str(body.accountName, 200),
-      sortCode: str(body.sortCode, 20),
-      accountNumber: str(body.accountNumber, 20),
-      settlementNotes: str(body.settlementNotes, 1000),
-    })
-    .where(eq(groups.id, id));
+  if (!(await groupExists(id))) fail(404, "Group not found.");
+  const updates: Partial<typeof groups.$inferInsert> = {};
+  if ("name" in body) updates.name = reqStr(body.name, "Group name", 200);
+  if ("charityNo" in body) updates.charityNo = str(body.charityNo, 50) || "Pending";
+  if ("hq" in body) updates.hq = str(body.hq, 300);
+  if ("gsl" in body) updates.gsl = str(body.gsl, 200);
+  if ("bankName" in body) updates.bankName = str(body.bankName, 200);
+  if ("accountName" in body) updates.accountName = str(body.accountName, 200);
+  if ("sortCode" in body) updates.sortCode = str(body.sortCode, 20);
+  if ("accountNumber" in body) updates.accountNumber = str(body.accountNumber, 20);
+  if ("settlementNotes" in body) updates.settlementNotes = str(body.settlementNotes, 1000);
+  if (Object.keys(updates).length) await db.update(groups).set(updates).where(eq(groups.id, id));
   return { ok: true };
 }
 
@@ -537,16 +582,36 @@ async function createSection(s: Session, body: any) {
   if (await sectionExists(id)) fail(409, "A section with that name already exists.");
   const [sec] = await db
     .insert(sections)
-    .values({ id, name, age: reqStr(body.age, "Age range", 50), unitTerm: str(body.unitTerm, 50), color: str(body.color, 20) || "#059669" })
+    .values({
+      id,
+      name,
+      age: reqStr(body.age, "Age range", 50),
+      unitTerm: str(body.unitTerm, 50),
+      color: str(body.color, 20) || "#059669",
+      ...(str(body.price) ? { price: parsePrice(body.price) } : {}),
+    })
     .returning();
   return sec;
+}
+
+async function updateSection(s: Session, id: string, body: any) {
+  requireAdmin(s);
+  if (!(await sectionExists(id))) fail(404, "Section not found.");
+  const updates: Partial<typeof sections.$inferInsert> = {};
+  if ("name" in body) updates.name = reqStr(body.name, "Section name", 100);
+  if ("age" in body) updates.age = reqStr(body.age, "Age range", 50);
+  if ("unitTerm" in body) updates.unitTerm = str(body.unitTerm, 50);
+  if ("color" in body) updates.color = str(body.color, 20) || "#059669";
+  if ("price" in body) updates.price = parsePrice(body.price);
+  if (Object.keys(updates).length) await db.update(sections).set(updates).where(eq(sections.id, id));
+  return { ok: true };
 }
 
 async function updateSectionPricing(s: Session, body: any) {
   requireAdmin(s);
   const pricing = body.pricing && typeof body.pricing === "object" ? body.pricing : {};
   for (const [id, price] of Object.entries(pricing)) {
-    await db.update(sections).set({ price: str(price, 20) }).where(eq(sections.id, id));
+    await db.update(sections).set({ price: parsePrice(price) }).where(eq(sections.id, id));
   }
   return { ok: true };
 }
@@ -559,12 +624,21 @@ async function deleteSection(s: Session, id: string) {
   return { ok: true };
 }
 
-async function updateLeader(s: Session, userId: string, body: any) {
+async function updatePerson(s: Session, userId: string, body: any) {
   requireAdmin(s);
   const [p] = await db.select().from(profiles).where(eq(profiles.userId, userId));
-  if (!p || p.accountType !== "leader") fail(404, "Leader not found.");
+  if (!p) fail(404, "Account not found.");
 
   const updates: Partial<Profile> = {};
+  if ("firstName" in body) updates.firstName = str(body.firstName, 100);
+  if ("lastName" in body) updates.lastName = str(body.lastName, 100);
+  if ("phone" in body) updates.phone = str(body.phone, 50) || "TBC";
+  if (body.accountType === "leader" || body.accountType === "parent") updates.accountType = body.accountType;
+  if ("groupId" in body) {
+    const g = str(body.groupId, 100);
+    if (g && !(await groupExists(g))) fail(422, "Unknown Scout Group.");
+    updates.groupId = g || null;
+  }
   if ("name" in body) {
     const [first, ...rest] = str(body.name, 200).split(/\s+/);
     updates.firstName = first ?? "";
@@ -577,12 +651,45 @@ async function updateLeader(s: Session, userId: string, body: any) {
 
   const email = str(body.email, 200);
   const password = typeof body.password === "string" ? body.password : "";
+  if (password && password.length < 6) fail(422, "Passwords need at least 6 characters.");
   if ((email && email !== p!.email) || password) {
     await admin.updateUser(userId, { ...(email && email !== p!.email ? { email } : {}), ...(password ? { password } : {}) });
     if (email) updates.email = email;
   }
 
   if (Object.keys(updates).length) await db.update(profiles).set(updates).where(eq(profiles.userId, userId));
+  return { ok: true };
+}
+
+async function deletePerson(s: Session, userId: string) {
+  requireAdmin(s);
+  if (userId === s.user.id) fail(422, "You can't delete your own account.");
+  const [p] = await db.select().from(profiles).where(eq(profiles.userId, userId));
+  if (!p) fail(404, "Account not found.");
+
+  // Children stay on the register; they're just no longer linked to this login.
+  await db.update(members).set({ parentUserId: null }).where(eq(members.parentUserId, userId));
+  await db.delete(profiles).where(eq(profiles.userId, userId));
+  try {
+    await admin.deleteUser(userId);
+  } catch (err: any) {
+    if (err?.status !== 404) throw err;
+  }
+  return { ok: true };
+}
+
+async function createLeaderRole(s: Session, body: any) {
+  requireAdmin(s);
+  const name = reqStr(body.name, "Role name", 100);
+  const [existing] = await db.select().from(leaderRoles).where(eq(leaderRoles.name, name));
+  if (existing) fail(409, "That role already exists.");
+  const [r] = await db.insert(leaderRoles).values({ name }).returning();
+  return { id: r.id, name: r.name };
+}
+
+async function deleteLeaderRole(s: Session, id: string) {
+  requireAdmin(s);
+  await db.delete(leaderRoles).where(eq(leaderRoles.id, id));
   return { ok: true };
 }
 
@@ -615,12 +722,17 @@ export default async (req: Request) => {
       case "POST events": return Response.json(await createEvent(s, body), { status: 201 });
       case "POST messages": return Response.json(await createMessage(s, body), { status: 201 });
       case "POST groups": return Response.json(await createGroup(s, body), { status: 201 });
-      case "PATCH groups/:id": return Response.json(await updateGroupBank(s, id, body));
+      case "PATCH groups/:id": return Response.json(await updateGroup(s, id, body));
       case "DELETE groups/:id": return Response.json(await deleteGroup(s, id));
       case "POST sections": return Response.json(await createSection(s, body), { status: 201 });
       case "PATCH sections": return Response.json(await updateSectionPricing(s, body));
+      case "PATCH sections/:id": return Response.json(await updateSection(s, id, body));
       case "DELETE sections/:id": return Response.json(await deleteSection(s, id));
-      case "PATCH leaders/:id": return Response.json(await updateLeader(s, id, body));
+      case "PATCH leaders/:id":
+      case "PATCH people/:id": return Response.json(await updatePerson(s, id, body));
+      case "DELETE people/:id": return Response.json(await deletePerson(s, id));
+      case "POST roles": return Response.json(await createLeaderRole(s, body), { status: 201 });
+      case "DELETE roles/:id": return Response.json(await deleteLeaderRole(s, id));
       default: return Response.json({ error: "Not found" }, { status: 404 });
     }
   } catch (err: any) {

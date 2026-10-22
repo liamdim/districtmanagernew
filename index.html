@@ -172,6 +172,9 @@
           <button class="btn-persona" id="btn-parent" onclick="setRole('parent')">Parent Portal</button>
         </div>
 
+        <button class="btn btn-outline" style="background: var(--slate-800); color: var(--slate-300); border-color: var(--slate-700); padding: 4px 10px; font-size: 11px;" onclick="openMyAccountModal()">
+          My Account
+        </button>
         <button class="btn btn-outline" style="background: var(--slate-800); color: var(--slate-300); border-color: var(--slate-700); padding: 4px 10px; font-size: 11px;" onclick="handleSignOut()">
           Sign Out
         </button>
@@ -430,6 +433,8 @@
       tab: 'census',
       ypSubView: 'directory',
       adminSubView: 'groups',
+      peopleFilter: 'all',
+      pendingPasswordReset: false,
       paySubView: 'subs',
       badgeFilter: 'ALL',
       selectedBadgeId: '',
@@ -448,6 +453,8 @@
       sectionPricing: {},
 
       leaders: [],
+      people: [],
+      leaderRoles: [],
       members: [],
       leftMembers: [],
       activities: [],
@@ -471,7 +478,6 @@
         if (!p) return appState.sections.slice(0, 1);
         if (p.allSectionsAccess) return appState.sections;
         const allowed = new Set(p.sections || []);
-        if (p.section) allowed.add(p.section);
         return appState.sections.filter(s => allowed.has(s.id));
       }
       return appState.sections;
@@ -506,6 +512,8 @@
       appState.sectionPricing = data.sectionPricing;
       appState.bankDetails = data.bankDetails || appState.bankDetails;
       appState.leaders = data.leaders;
+      appState.people = data.people || [];
+      appState.leaderRoles = data.leaderRoles || [];
       appState.members = data.members;
       appState.leftMembers = data.leftMembers;
       appState.activities = data.activities;
@@ -564,7 +572,7 @@
       try {
         const cb = await identity.handleAuthCallback();
         if (cb?.type === 'confirmation') alert('Email confirmed. Welcome to District Manager!');
-        if (cb?.type === 'recovery') await promptNewPassword('Choose a new password for your account:');
+        if (cb?.type === 'recovery') appState.pendingPasswordReset = true;
         if (cb?.type === 'invite') {
           const pw = prompt('Welcome! Choose a password for your new account (at least 6 characters):');
           if (pw) await identity.acceptInvite(cb.token, pw);
@@ -575,8 +583,13 @@
 
       appState.loading = false;
       const user = await identity.getUser();
-      if (user) await enterApp();
-      else renderContent();
+      if (user) {
+        await enterApp();
+        if (appState.pendingPasswordReset) {
+          appState.pendingPasswordReset = false;
+          openChangePasswordModal('You followed a password reset link. Choose a new password for your account.');
+        }
+      } else renderContent();
     }
 
     async function enterApp() {
@@ -1268,6 +1281,7 @@
           <button class="nav-tab ${appState.tab === 'payments' ? 'active' : ''}" onclick="setTab('payments')">Subs & Gift Aid</button>
           <button class="nav-tab ${appState.tab === 'events' ? 'active' : ''}" onclick="setTab('events')">Programme & Events</button>
           <button class="nav-tab ${appState.tab === 'messages' ? 'active' : ''}" onclick="setTab('messages')">Broadcasts (${appState.messages.length})</button>
+          ${appState.role === 'super_admin' && appState.profile?.isAdmin ? `<button class="nav-tab ${appState.tab === 'super_settings' ? 'active' : ''}" onclick="setTab('super_settings')">⚙️ Super Admin Settings</button>` : ''}
         `;
       }
     }
@@ -1346,6 +1360,11 @@
                   ${appState.authTab === 'signin' ? 'Sign In to Portal' : 'Register & Continue to Profile Setup →'}
                 </button>
               </form>
+              ${appState.authTab === 'signin' ? `
+                <div style="text-align: center; margin-top: 14px;">
+                  <button type="button" class="btn" style="background: none; color: var(--primary); padding: 4px;" onclick="openForgotPasswordModal()">Forgot your password?</button>
+                </div>
+              ` : ''}
             </div>
           </div>
         `;
@@ -1917,7 +1936,7 @@
                     <td>${m.giftAid ? '<span class="tag tag-green">✓ Valid Declaration</span>' : '<span class="tag tag-blue">Not Claimed</span>'}</td>
                     <td style="text-align: right;">
                       <button class="btn ${m.subsStatus === 'Paid' ? 'btn-primary' : 'btn-outline'}" style="padding: 4px 10px;" onclick="cycleSubsStatus('${m.id}')">
-                        ${m.subsStatus === 'Paid' ? '✓ Paid' : m.subsStatus === 'Overdue' ? '⚠️ Overdue' : 'Due (£' + appState.sectionPricing[appState.section] + ')'}
+                        ${m.subsStatus === 'Paid' ? '✓ Paid' : m.subsStatus === 'Overdue' ? '⚠️ Overdue' : 'Due (' + appState.sectionPricing[appState.section] + ')'}
                       </button>
                     </td>
                   </tr>
@@ -1926,6 +1945,14 @@
             </table>
           </div>
         `;
+        return;
+      }
+
+      // TAB: SUPER ADMIN SETTINGS
+      if (appState.tab === 'super_settings') {
+        viewEl.innerHTML = appState.profile?.isAdmin
+          ? renderSuperSettings(curGroup)
+          : `<div class="card">Only Super Admins can open these settings.</div>`;
         return;
       }
 
@@ -1991,17 +2018,6 @@
       }
     }
 
-
-    async function promptNewPassword(msg) {
-      const pw = prompt(msg);
-      if (!pw) return;
-      try {
-        await identity.updateUser({ password: pw });
-        alert('Password updated.');
-      } catch (err) {
-        alert(authErrorMessage(err));
-      }
-    }
 
     async function saveLeaderProfile(e) {
       e.preventDefault();
@@ -2121,6 +2137,561 @@
         subject: `POR-EV1 Consent: ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} – ${unescapeHtml(evt.title)}`,
         body: `I give permission for ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} to take part in ${unescapeHtml(evt.title)} (${unescapeHtml(evt.date)}, ${unescapeHtml(evt.location)}). Signed electronically by ${signature} on ${localDate()}.`
       }), 'Consent signed and sent to the section leaders.');
+    }
+
+    // --- SUPER ADMIN SETTINGS ---
+    function setAdminSubView(v) {
+      appState.adminSubView = v;
+      renderContent();
+    }
+
+    function setPeopleFilter(f) {
+      appState.peopleFilter = f;
+      renderContent();
+    }
+
+    const sectionName = id => appState.sections.find(s => s.id === id)?.name || id;
+    const priceNumber = p => String(unescapeHtml(p || '')).replace(/[^0-9.]/g, '') || '0';
+    const smallBtn = 'padding: 4px 8px; font-size: 11px;';
+
+    function renderSuperSettings(curGroup) {
+      const views = [
+        ['groups', 'Scout Groups'],
+        ['sections', 'Sections'],
+        ['subs', 'Subs Pricing'],
+        ['access', 'Leader Roles & Section Access'],
+        ['people', 'Leaders & Parents']
+      ];
+      const subNav = `
+        <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 900;">Super Admin Settings</h2>
+            <p style="font-size: 12px; color: var(--slate-500);">Managing <strong>${curGroup.name}</strong>. Use the group picker in the header to switch groups.</p>
+          </div>
+        </div>
+        <div class="subnav">
+          ${views.map(([id, label]) => `<button class="subnav-btn ${appState.adminSubView === id ? 'active' : ''}" onclick="setAdminSubView('${id}')">${label}</button>`).join('')}
+        </div>
+      `;
+
+      let content = '';
+      const v = appState.adminSubView;
+
+      if (v === 'sections') {
+        content = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="font-size: 16px; font-weight: 800;">Sections (${appState.sections.length})</h3>
+            <button class="btn btn-primary" onclick="openSectionModal()">+ Add Section</button>
+          </div>
+          <div class="grid-3">
+            ${appState.sections.map(s => `
+              <div class="card" style="margin-bottom: 0; border-left: 4px solid ${s.color};">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                  <div>
+                    <strong style="font-size: 14px;">${s.name}</strong> <span style="color: var(--slate-500);">(${s.age})</span>
+                    <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">Sub-unit: ${s.unitTerm || '—'} • Subs: ${s.price || appState.sectionPricing[s.id] || '—'}</div>
+                    <div style="font-size: 11px; color: var(--slate-500);">${appState.members.filter(m => m.section === s.id).length} young people in this group</div>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 10px;">
+                  <button class="btn btn-outline" style="${smallBtn}" onclick="openSectionModal('${s.id}')">Edit</button>
+                  <button class="btn btn-danger" style="${smallBtn}" onclick="deleteSectionAdmin('${s.id}')">Remove</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else if (v === 'subs') {
+        content = `
+          <div class="card">
+            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 4px;">Subs Pricing for All Sections</h3>
+            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">Set the termly subs price for each section. Changes apply across every group.</p>
+            <form onsubmit="saveAllPricing(event)">
+              <table>
+                <thead><tr><th>Section</th><th>Age Range</th><th>Current Price</th><th style="width: 180px;">New Price (£ per term)</th></tr></thead>
+                <tbody>
+                  ${appState.sections.map(s => `
+                    <tr>
+                      <td><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${s.color}; margin-right:6px;"></span><strong>${s.name}</strong></td>
+                      <td>${s.age}</td>
+                      <td>${appState.sectionPricing[s.id] || '—'}</td>
+                      <td><input type="number" min="0" step="0.01" class="form-control price-input" data-sec="${s.id}" value="${priceNumber(appState.sectionPricing[s.id])}" required /></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button type="submit" class="btn btn-primary">Save All Prices</button>
+              </div>
+            </form>
+          </div>
+        `;
+      } else if (v === 'access') {
+        const leaders = appState.people.filter(p => p.accountType === 'leader');
+        const lRows = leaders.map(l => `
+          <tr>
+            <td><strong>${l.name}</strong><div style="font-size: 11px; color: var(--slate-500);">${l.email}</div></td>
+            <td>
+              <span class="tag tag-blue">${l.role}</span>
+              ${l.approved ? '<span class="tag tag-green" style="margin-left:4px;">Approved</span>' : '<span class="tag tag-red" style="margin-left:4px;">Awaiting Approval</span>'}
+            </td>
+            <td>
+              ${l.allSectionsAccess
+                ? '<span class="tag tag-green">All Sections</span>'
+                : (l.sections || []).length
+                  ? l.sections.map(s => `<span class="tag tag-purple" style="margin: 0 2px 2px 0;">${sectionName(s)}</span>`).join('')
+                  : '<span class="tag tag-amber">No sections</span>'}
+            </td>
+            <td style="text-align: right; white-space: nowrap;">
+              <button class="btn btn-outline" style="${smallBtn}" onclick="openLeaderAccessModal('${l.id}')">Edit Role & Access</button>
+              ${l.approved
+                ? `<button class="btn btn-danger" style="${smallBtn} margin-left: 4px;" onclick="setLeaderApproved('${l.id}', false)">Revoke</button>`
+                : `<button class="btn btn-primary" style="${smallBtn} margin-left: 4px;" onclick="setLeaderApproved('${l.id}', true)">Approve</button>`}
+            </td>
+          </tr>
+        `).join('');
+
+        content = `
+          <div class="grid-2">
+            <div class="card" style="padding: 0; overflow-x: auto;">
+              <div style="padding: 16px 16px 8px;">
+                <h3 style="font-size: 16px; font-weight: 800;">Leader Section Access</h3>
+                <p style="font-size: 12px; color: var(--slate-500);">Leaders only see the young people, activities, programme and messages for the sections ticked here.</p>
+              </div>
+              <table>
+                <thead><tr><th>Leader</th><th>Role</th><th>Sections They Can See</th><th style="text-align: right;">Actions</th></tr></thead>
+                <tbody>${lRows || '<tr><td colspan="4" style="text-align:center; padding: 24px; color:var(--slate-400);">No leaders in this group yet. Leaders register from the sign-in page.</td></tr>'}</tbody>
+              </table>
+            </div>
+            <div class="card">
+              <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 4px;">Leader Roles</h3>
+              <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 12px;">Role titles you can give leaders.</p>
+              <form onsubmit="addLeaderRole(event)" style="display: flex; gap: 6px; margin-bottom: 12px;">
+                <input class="form-control" id="new-role-name" required placeholder="e.g. Section Assistant" />
+                <button type="submit" class="btn btn-primary">Add</button>
+              </form>
+              ${appState.leaderRoles.map(r => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--slate-100);">
+                  <span style="font-weight: 700;">${r.name}</span>
+                  <button class="btn btn-danger" style="${smallBtn}" onclick="deleteLeaderRole('${r.id}')">Delete</button>
+                </div>
+              `).join('') || '<p style="color: var(--slate-400);">No roles yet.</p>'}
+            </div>
+          </div>
+        `;
+      } else if (v === 'people') {
+        const f = appState.peopleFilter;
+        const list = appState.people.filter(p => f === 'all' || p.accountType === f);
+        const rows = list.map(p => `
+          <tr>
+            <td>
+              <strong>${p.name}</strong>
+              ${p.id === appState.profile?.userId ? '<span class="tag tag-green" style="margin-left:4px;">You</span>' : ''}
+              <div style="font-size: 11px; color: var(--slate-500);">${p.email}</div>
+            </td>
+            <td>${p.phone}</td>
+            <td>${p.accountType === 'leader' ? `<span class="tag tag-blue">Leader • ${p.role}</span>` : '<span class="tag tag-purple">Parent</span>'}</td>
+            <td>${p.accountType === 'parent' ? `${p.childCount} linked` : '—'}</td>
+            <td>${appState.groups.find(g => g.id === p.groupId)?.name || '<span class="tag tag-amber">No group</span>'}</td>
+            <td style="text-align: right; white-space: nowrap;">
+              <button class="btn btn-outline" style="${smallBtn}" onclick="openPersonModal('${p.id}')">Edit</button>
+              <button class="btn btn-outline" style="${smallBtn} margin-left: 4px;" onclick="sendResetEmail('${p.id}')">Send Reset Email</button>
+              <button class="btn btn-danger" style="${smallBtn} margin-left: 4px;" onclick="deletePerson('${p.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        content = `
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <div style="padding: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <div>
+                <h3 style="font-size: 16px; font-weight: 800;">Leaders & Parents</h3>
+                <p style="font-size: 12px; color: var(--slate-500);">Everyone with an account in this group (plus anyone not yet linked to a group).</p>
+              </div>
+              <div class="subnav" style="margin-bottom: 0;">
+                ${[['all', 'All'], ['leader', 'Leaders'], ['parent', 'Parents']].map(([id, label]) => `<button class="subnav-btn ${f === id ? 'active' : ''}" onclick="setPeopleFilter('${id}')">${label} (${id === 'all' ? appState.people.length : appState.people.filter(p => p.accountType === id).length})</button>`).join('')}
+              </div>
+            </div>
+            <table>
+              <thead><tr><th>Name & Email</th><th>Phone</th><th>Account</th><th>Children</th><th>Group</th><th style="text-align: right;">Actions</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="6" style="text-align:center; padding: 24px; color:var(--slate-400);">No accounts found.</td></tr>'}</tbody>
+            </table>
+          </div>
+        `;
+      } else {
+        content = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="font-size: 16px; font-weight: 800;">Scout Groups (${appState.groups.length})</h3>
+            <button class="btn btn-primary" onclick="openGroupModal()">+ Add Group</button>
+          </div>
+          <div class="grid-2">
+            ${appState.groups.map(g => `
+              <div class="card" style="margin-bottom: 0; ${g.id === appState.currentGroupId ? 'border-color: var(--primary);' : ''}">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                  <div>
+                    <strong style="font-size: 14px;">${g.name}</strong>
+                    ${g.id === appState.currentGroupId ? '<span class="tag tag-green" style="margin-left: 4px;">Viewing</span>' : ''}
+                    <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">${g.hq || 'No HQ address'} • Charity #${g.charityNo}</div>
+                    <div style="font-size: 11px; color: var(--slate-500);">GSL: ${g.gsl || '—'}</div>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+                  ${g.id !== appState.currentGroupId ? `<button class="btn btn-outline" style="${smallBtn}" onclick="switchGroup('${g.id}')">Switch To</button>` : ''}
+                  <button class="btn btn-outline" style="${smallBtn}" onclick="openGroupModal('${g.id}')">Edit</button>
+                  <button class="btn btn-danger" style="${smallBtn}" onclick="deleteGroupAdmin('${g.id}')">Delete</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      return `${subNav}${content}`;
+    }
+
+    function modalShell(title, body) {
+      return `
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">${title}</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">${body}</div>
+      `;
+    }
+
+    const modalButtons = label => `
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">${label}</button>
+      </div>
+    `;
+
+    const field = (id, label, value = '', attrs = '') => `
+      <div class="form-group">
+        <label>${label}</label>
+        <input class="form-control" id="${id}" value="${value}" ${attrs} />
+      </div>
+    `;
+
+    const val = id => document.getElementById(id).value.trim();
+
+    async function submitAdmin(e, promise, msg) {
+      e.preventDefault();
+      const btn = e.submitter;
+      if (btn) btn.disabled = true;
+      try {
+        await promise();
+        closeAppModal();
+        if (msg) alert(msg);
+      } catch (err) {
+        alert('Could not save: ' + err.message);
+        if (btn) btn.disabled = false;
+        return;
+      }
+      await refreshApp();
+    }
+
+    // Groups
+    function openGroupModal(groupId) {
+      const g = appState.groups.find(x => x.id === groupId);
+      const bank = g && g.id === appState.currentGroupId ? appState.bankDetails : null;
+      openAppModal(modalShell(g ? `Edit ${g.name}` : 'Add Scout Group', `
+        <form onsubmit="saveGroup(event, '${g ? g.id : ''}')">
+          <div class="grid-2">
+            ${field('g-name', 'Group Name *', g?.name || '', 'required')}
+            ${field('g-charity', 'Charity Number', g?.charityNo || '', 'placeholder="Pending"')}
+          </div>
+          <div class="grid-2">
+            ${field('g-hq', 'HQ Address *', g?.hq || '', 'required')}
+            ${field('g-gsl', 'Group Lead Volunteer *', g?.gsl || '', 'required')}
+          </div>
+          ${bank ? `
+            <h4 style="font-size: 13px; font-weight: 800; margin: 8px 0;">Settlement Bank Account</h4>
+            <div class="grid-2">
+              ${field('g-bank', 'Bank Name', bank.bankName)}
+              ${field('g-accname', 'Account Name', bank.accountName)}
+            </div>
+            <div class="grid-2">
+              ${field('g-sort', 'Sort Code', bank.sortCode)}
+              ${field('g-accno', 'Account Number', bank.accountNumber)}
+            </div>
+            ${field('g-notes', 'Settlement Notes', bank.settlementNotes)}
+          ` : g ? '<p style="font-size: 11px; color: var(--slate-500);">Switch to this group to edit its bank details.</p>' : ''}
+          ${modalButtons(g ? 'Save Group' : 'Create Group')}
+        </form>
+      `));
+    }
+
+    function saveGroup(e, groupId) {
+      const body = { name: val('g-name'), charityNo: val('g-charity'), hq: val('g-hq'), gsl: val('g-gsl') };
+      if (document.getElementById('g-bank')) {
+        Object.assign(body, {
+          bankName: val('g-bank'), accountName: val('g-accname'), sortCode: val('g-sort'),
+          accountNumber: val('g-accno'), settlementNotes: val('g-notes')
+        });
+      }
+      submitAdmin(e, () => groupId ? api('PATCH', `groups/${groupId}`, body) : api('POST', 'groups', body), groupId ? 'Group updated.' : 'Group created.');
+    }
+
+    async function deleteGroupAdmin(groupId) {
+      const g = appState.groups.find(x => x.id === groupId);
+      if (!g) return;
+      if (!confirm(`Delete ${unescapeHtml(g.name)}?\n\nThis permanently removes all of its young people, attendance, activities, programme, events and messages. Leader and parent accounts are kept but unlinked from the group.`)) return;
+      if (groupId === appState.currentGroupId) appState.currentGroupId = '';
+      await saveAndRefresh(api('DELETE', `groups/${groupId}`), 'Group deleted.');
+    }
+
+    // Sections
+    function openSectionModal(sectionId) {
+      const s = appState.sections.find(x => x.id === sectionId);
+      openAppModal(modalShell(s ? `Edit ${s.name}` : 'Add Section', `
+        <form onsubmit="saveSection(event, '${s ? s.id : ''}')">
+          <div class="grid-2">
+            ${field('s-name', 'Section Name *', s?.name || '', 'required placeholder="e.g. Network"')}
+            ${field('s-age', 'Age Range *', s?.age || '', 'required placeholder="e.g. 18-25"')}
+          </div>
+          <div class="grid-2">
+            ${field('s-unit', 'Sub-unit Term', s?.unitTerm || '', 'placeholder="e.g. Patrol, Six, Lodge"')}
+            ${field('s-price', 'Subs Price (£ per term)', priceNumber(s ? appState.sectionPricing[s.id] : '40.00'), 'type="number" min="0" step="0.01" required')}
+          </div>
+          <div class="form-group">
+            <label>Colour</label>
+            <input type="color" class="form-control" id="s-color" value="${s?.color || '#059669'}" style="height: 38px; padding: 2px;" />
+          </div>
+          ${modalButtons(s ? 'Save Section' : 'Add Section')}
+        </form>
+      `));
+    }
+
+    function saveSection(e, sectionId) {
+      const body = { name: val('s-name'), age: val('s-age'), unitTerm: val('s-unit'), price: val('s-price'), color: val('s-color') };
+      submitAdmin(e, () => sectionId ? api('PATCH', `sections/${sectionId}`, body) : api('POST', 'sections', body), sectionId ? 'Section updated.' : 'Section added.');
+    }
+
+    async function deleteSectionAdmin(sectionId) {
+      const s = appState.sections.find(x => x.id === sectionId);
+      if (!s) return;
+      if (!confirm(`Remove the ${unescapeHtml(s.name)} section?\n\nThis permanently deletes every young person registered in ${unescapeHtml(s.name)} across all groups. Move them to another section first if you want to keep them.`)) return;
+      await saveAndRefresh(api('DELETE', `sections/${sectionId}`), 'Section removed.');
+    }
+
+    // Subs pricing
+    function saveAllPricing(e) {
+      const pricing = {};
+      document.querySelectorAll('.price-input').forEach(el => { pricing[el.dataset.sec] = el.value; });
+      submitAdmin(e, () => api('PATCH', 'sections', { pricing }), 'Subs prices saved.');
+    }
+
+    // Leader roles & access
+    function addLeaderRole(e) {
+      const name = val('new-role-name');
+      submitAdmin(e, () => api('POST', 'roles', { name }));
+    }
+
+    async function deleteLeaderRole(roleId) {
+      const r = appState.leaderRoles.find(x => x.id === roleId);
+      if (!r || !confirm(`Delete the role "${unescapeHtml(r.name)}"? Leaders who already have it keep their current title.`)) return;
+      await saveAndRefresh(api('DELETE', `roles/${roleId}`));
+    }
+
+    async function setLeaderApproved(userId, approved) {
+      if (!approved && !confirm('Revoke this leader\'s access? They will no longer see any young people until approved again.')) return;
+      await saveAndRefresh(api('PATCH', `people/${userId}`, { approved }), approved ? 'Leader approved.' : 'Leader access revoked.');
+    }
+
+    function openLeaderAccessModal(userId) {
+      const l = appState.people.find(x => x.id === userId);
+      if (!l) return;
+      const roles = appState.leaderRoles.map(r => r.name);
+      if (!roles.includes(l.role)) roles.unshift(l.role);
+      openAppModal(modalShell(`Role & Section Access — ${l.name}`, `
+        <form onsubmit="saveLeaderAccess(event, '${l.id}')">
+          <div class="form-group">
+            <label>Role</label>
+            <select class="form-control" id="la-role">
+              ${roles.map(r => `<option ${r === l.role ? 'selected' : ''}>${r}</option>`).join('')}
+            </select>
+          </div>
+          <label style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-weight: 700;">
+            <input type="checkbox" id="la-approved" ${l.approved ? 'checked' : ''} /> Approved leader (can sign in to the leader area)
+          </label>
+          <label style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-weight: 700;">
+            <input type="checkbox" id="la-all" ${l.allSectionsAccess ? 'checked' : ''} onchange="document.getElementById('la-sections').style.opacity = this.checked ? 0.4 : 1" /> Access to all sections (e.g. GSL)
+          </label>
+          <div class="form-group" id="la-sections" style="opacity: ${l.allSectionsAccess ? 0.4 : 1};">
+            <label>Sections this leader can see</label>
+            <div class="grid-3" style="gap: 6px;">
+              ${appState.sections.map(s => `
+                <label style="display: flex; gap: 6px; align-items: center; border: 1px solid var(--slate-200); border-left: 4px solid ${s.color}; padding: 8px; border-radius: 6px; cursor: pointer;">
+                  <input type="checkbox" class="la-sec" value="${s.id}" ${(l.sections || []).includes(s.id) ? 'checked' : ''} /> ${s.name}
+                </label>
+              `).join('')}
+            </div>
+          </div>
+          ${modalButtons('Save Access')}
+        </form>
+      `));
+    }
+
+    function saveLeaderAccess(e, userId) {
+      const body = {
+        role: document.getElementById('la-role').value,
+        approved: document.getElementById('la-approved').checked,
+        allSectionsAccess: document.getElementById('la-all').checked,
+        sections: [...document.querySelectorAll('.la-sec:checked')].map(el => el.value)
+      };
+      submitAdmin(e, () => api('PATCH', `people/${userId}`, body), 'Leader access updated.');
+    }
+
+    // Leaders & parents
+    function openPersonModal(userId) {
+      const p = appState.people.find(x => x.id === userId);
+      if (!p) return;
+      openAppModal(modalShell(`Edit ${p.name}`, `
+        <form onsubmit="savePerson(event, '${p.id}')">
+          <div class="grid-2">
+            ${field('pp-fn', 'First Name', p.firstName)}
+            ${field('pp-ln', 'Last Name', p.lastName)}
+          </div>
+          <div class="grid-2">
+            ${field('pp-email', 'Email Address *', p.email, 'type="email" required')}
+            ${field('pp-phone', 'Phone', p.phone === 'TBC' ? '' : p.phone)}
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Account Type</label>
+              <select class="form-control" id="pp-type">
+                <option value="parent" ${p.accountType === 'parent' ? 'selected' : ''}>Parent / Guardian</option>
+                <option value="leader" ${p.accountType === 'leader' ? 'selected' : ''}>Leader / Volunteer</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Scout Group</label>
+              <select class="form-control" id="pp-group">
+                <option value="">— No group —</option>
+                ${appState.groups.map(g => `<option value="${g.id}" ${g.id === p.groupId ? 'selected' : ''}>${g.name}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          ${field('pp-pass', 'Set New Password (optional)', '', 'type="password" minlength="6" autocomplete="new-password" placeholder="Leave blank to keep their current password"')}
+          ${modalButtons('Save Details')}
+        </form>
+      `));
+    }
+
+    function savePerson(e, userId) {
+      const body = {
+        firstName: val('pp-fn'),
+        lastName: val('pp-ln'),
+        email: val('pp-email'),
+        phone: val('pp-phone'),
+        accountType: document.getElementById('pp-type').value,
+        groupId: document.getElementById('pp-group').value
+      };
+      const password = document.getElementById('pp-pass').value;
+      if (password) body.password = password;
+      submitAdmin(e, () => api('PATCH', `people/${userId}`, body), 'Details saved.');
+    }
+
+    async function deletePerson(userId) {
+      const p = appState.people.find(x => x.id === userId);
+      if (!p) return;
+      if (userId === appState.profile?.userId) return alert("You can't delete your own account.");
+      if (!confirm(`Permanently delete the account for ${unescapeHtml(p.name)} (${unescapeHtml(p.email)})?\n\nThey will no longer be able to sign in. Any children they enrolled stay on the register.`)) return;
+      await saveAndRefresh(api('DELETE', `people/${userId}`), 'Account deleted.');
+    }
+
+    async function sendResetEmail(userId) {
+      const p = appState.people.find(x => x.id === userId);
+      if (!p || !confirm(`Send a password reset email to ${unescapeHtml(p.email)}?`)) return;
+      try {
+        await identity.requestPasswordRecovery(unescapeHtml(p.email));
+        alert('Password reset email sent.');
+      } catch (err) {
+        alert(authErrorMessage(err));
+      }
+    }
+
+    // --- MY ACCOUNT, CHANGE & FORGOT PASSWORD ---
+    function openMyAccountModal() {
+      const p = appState.profile || {};
+      openAppModal(modalShell('My Account', `
+        <form onsubmit="saveMyAccount(event)">
+          <div class="grid-2">
+            ${field('ma-fn', 'First Name', p.firstName || '')}
+            ${field('ma-ln', 'Last Name', p.lastName || '')}
+          </div>
+          <div class="grid-2">
+            ${field('ma-email', 'Email Address', p.email || '', 'readonly style="background: var(--slate-100);"')}
+            ${field('ma-phone', 'Phone', p.phone === 'TBC' ? '' : (p.phone || ''))}
+          </div>
+          ${modalButtons('Save My Details')}
+        </form>
+        <div style="border-top: 1px solid var(--slate-200); margin-top: 20px; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <strong>Password</strong>
+            <div style="font-size: 11px; color: var(--slate-500);">Change the password you use to sign in.</div>
+          </div>
+          <button type="button" class="btn btn-dark" onclick="openChangePasswordModal()">Change Password</button>
+        </div>
+      `));
+    }
+
+    function saveMyAccount(e) {
+      const body = { firstName: val('ma-fn'), lastName: val('ma-ln'), phone: val('ma-phone') };
+      submitAdmin(e, () => api('PATCH', 'profile', body), 'Your details have been saved.');
+    }
+
+    function openChangePasswordModal(intro) {
+      openAppModal(modalShell('Change Password', `
+        ${intro ? `<p style="margin-bottom: 12px; color: var(--slate-600);">${intro}</p>` : ''}
+        <form onsubmit="handleChangePassword(event)">
+          ${field('cp-new', 'New Password *', '', 'type="password" required minlength="6" autocomplete="new-password" placeholder="At least 6 characters"')}
+          ${field('cp-confirm', 'Confirm New Password *', '', 'type="password" required minlength="6" autocomplete="new-password"')}
+          ${modalButtons('Update Password')}
+        </form>
+      `));
+    }
+
+    async function handleChangePassword(e) {
+      e.preventDefault();
+      const pw = document.getElementById('cp-new').value;
+      if (pw !== document.getElementById('cp-confirm').value) return alert('The two passwords do not match.');
+      const btn = e.submitter;
+      if (btn) btn.disabled = true;
+      try {
+        await identity.updateUser({ password: pw });
+        closeAppModal();
+        alert('Password updated.');
+      } catch (err) {
+        alert(authErrorMessage(err));
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function openForgotPasswordModal() {
+      const email = document.getElementById('auth-email')?.value.trim() || '';
+      openAppModal(modalShell('Forgot Password', `
+        <p style="margin-bottom: 12px; color: var(--slate-600);">Enter the email address you signed up with and we'll email you a link to choose a new password.</p>
+        <form onsubmit="handleForgotPassword(event)">
+          ${field('fp-email', 'Email Address *', email.replace(/"/g, '&quot;'), 'type="email" required placeholder="name@example.co.uk"')}
+          ${modalButtons('Send Reset Link')}
+        </form>
+      `));
+    }
+
+    async function handleForgotPassword(e) {
+      e.preventDefault();
+      const btn = e.submitter;
+      if (btn) btn.disabled = true;
+      try {
+        await identity.requestPasswordRecovery(val('fp-email'));
+        closeAppModal();
+        alert('If an account exists for that email, a password reset link is on its way. Check your inbox (and spam folder).');
+      } catch (err) {
+        alert(authErrorMessage(err));
+        if (btn) btn.disabled = false;
+      }
     }
 
     // Expose for src/auth.js, which starts the app once Netlify Identity is ready.
