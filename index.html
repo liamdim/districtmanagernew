@@ -260,7 +260,7 @@
       { id: 'stg-music', name: 'Musician Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Simple rhythm', '2 pieces', 'Solo performance', 'Grade 5 equivalent', 'Orchestra/Band leader'] }
     ];
 
-    const BADGES = {
+    const BADGES =[cite: 1] {
       squirrels: [
         { id: 'sq-acorn', name: "Chief Scout's Acorn Award", cat: "Top Award", stages: ["Complete all 4 Challenge Awards", "Take part in 2 outdoor sessions", "Share your Squirrel journey"] },
         { id: 'sq-feel-good', name: "Feel Good Challenge Award", cat: "Challenge Award", stages: ["Try a healthy snack", "Quiet reflection time", "Play an energetic team game"] },
@@ -451,6 +451,7 @@
       sections: [],
       bankDetails: { bankName: '', accountName: '', sortCode: '', accountNumber: '', settlementNotes: '' },
       sectionPricing: {},
+      sectionEmailSettings: {}, // { [sectionId]: { fromEmail: '', inboundEmail: '' } }
 
       leaders: [],
       people: [],
@@ -509,7 +510,8 @@
       appState.currentGroupId = data.currentGroupId;
       appState.groups = data.groups;
       appState.sections = data.sections;
-      appState.sectionPricing = data.sectionPricing;
+      appState.sectionPricing = data.sectionPricing || {};
+      appState.sectionEmailSettings = data.sectionEmailSettings || {};
       appState.bankDetails = data.bankDetails || appState.bankDetails;
       appState.leaders = data.leaders;
       appState.people = data.people || [];
@@ -1280,6 +1282,7 @@
           <button class="nav-tab ${appState.tab === 'activities' ? 'active' : ''}" onclick="setTab('activities')">Activities & Games Bank (${appState.activities.filter(a => a.section === appState.section).length})</button>
           <button class="nav-tab ${appState.tab === 'payments' ? 'active' : ''}" onclick="setTab('payments')">Subs & Gift Aid</button>
           <button class="nav-tab ${appState.tab === 'events' ? 'active' : ''}" onclick="setTab('events')">Programme & Events</button>
+          <button class="nav-tab ${appState.tab === 'email_system' ? 'active' : ''}" onclick="setTab('email_system')">✉️ Email System</button>
           <button class="nav-tab ${appState.tab === 'messages' ? 'active' : ''}" onclick="setTab('messages')">Broadcasts (${appState.messages.length})</button>
           ${appState.role === 'super_admin' && appState.profile?.isAdmin ? `<button class="nav-tab ${appState.tab === 'super_settings' ? 'active' : ''}" onclick="setTab('super_settings')">⚙️ Super Admin Settings</button>` : ''}
         `;
@@ -1424,47 +1427,46 @@
               <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
                   <h3 style="font-size: 15px; font-weight: 800;">Member Dossier & Subs Status</h3>
-                <h3 style="font-size: 15px; font-weight: 800;">Member Dossier & Subs Status</h3>
-                <span class="tag ${activeKid.subsStatus === 'Paid' ? 'tag-green' : 'tag-amber'}">Subs: ${activeKid.subsStatus}</span>
-              </div>
-              <div style="font-size: 12px; display: grid; gap: 8px;">
-                <div><strong>DOB:</strong> ${activeKid.dob} (Age ${calculateAge(activeKid.dob).toFixed(1)})</div>
-                <div><strong>School:</strong> ${activeKid.school}</div>
-                <div><strong>Address:</strong> ${activeKid.address}</div>
-                <div><strong>Medical / Allergies:</strong> ${activeKid.medical}</div>
-                <div><strong>Gift Aid Claim:</strong> ${activeKid.giftAid ? '✓ Active (HMRC 25% tax reclaimed)' : 'No'}</div>
+                  <span class="tag ${activeKid.subsStatus === 'Paid' ? 'tag-green' : 'tag-amber'}">Subs: ${activeKid.subsStatus}</span>
+                </div>
+                <div style="font-size: 12px; display: grid; gap: 8px;">
+                  <div><strong>DOB:</strong> ${activeKid.dob} (Age ${calculateAge(activeKid.dob).toFixed(1)})</div>
+                  <div><strong>School:</strong> ${activeKid.school}</div>
+                  <div><strong>Address:</strong> ${activeKid.address}</div>
+                  <div><strong>Medical / Allergies:</strong> ${activeKid.medical}</div>
+                  <div><strong>Gift Aid Claim:</strong> ${activeKid.giftAid ? '✓ Active (HMRC 25% tax reclaimed)' : 'No'}</div>
+                </div>
+
+                <div style="margin-top: 16px; padding: 12px; background: var(--slate-50); border-radius: 8px; border: 1px solid var(--slate-200);">
+                  <div style="font-size: 11px; font-weight: 800; color: var(--slate-600); margin-bottom: 4px;">GROUP BANK PAYMENT REFERENCE:</div>
+                  <div style="font-size: 12px; font-family: monospace;">Sort: ${appState.bankDetails.sortCode} | Acc: ${appState.bankDetails.accountNumber}</div>
+                  <div style="font-size: 10px; color: var(--slate-500); margin-top: 4px;">Reference: <strong>${activeKid.firstName.toUpperCase()}-${activeKid.section.toUpperCase()}</strong></div>
+                </div>
               </div>
 
-              <div style="margin-top: 16px; padding: 12px; background: var(--slate-50); border-radius: 8px; border: 1px solid var(--slate-200);">
-                <div style="font-size: 11px; font-weight: 800; color: var(--slate-600); margin-bottom: 4px;">GROUP BANK PAYMENT REFERENCE:</div>
-                <div style="font-size: 12px; font-family: monospace;">Sort: ${appState.bankDetails.sortCode} | Acc: ${appState.bankDetails.accountNumber}</div>
-                <div style="font-size: 10px; color: var(--slate-500); margin-top: 4px;">Reference: <strong>${activeKid.firstName.toUpperCase()}-${activeKid.section.toUpperCase()}</strong></div>
+              <div class="card">
+                <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">Earned Badges & In-Progress Awards</h3>
+                <div style="max-height: 250px; overflow-y: auto;">
+                  ${kidBadges.map(b => {
+                    const prog = activeKid.badgeProgress?.[b.id] || [];
+                    const done = prog.filter(Boolean).length;
+                    const total = b.stages.length;
+                    const pct = Math.round((done / total) * 100);
+                    return `
+                      <div style="margin-bottom: 10px; border-bottom: 1px solid var(--slate-100); padding-bottom: 8px;">
+                        <div style="display:flex; justify-content:space-between; font-size:12px;">
+                          <strong>${b.name}</strong>
+                          <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}%</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">
+                          ${done} of ${total} criteria passed • <span style="color:var(--slate-400);">${b.cat}</span>
+                        </div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
               </div>
             </div>
-
-            <div class="card">
-              <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">Earned Badges & In-Progress Awards</h3>
-              <div style="max-height: 250px; overflow-y: auto;">
-                ${kidBadges.map(b => {
-                  const prog = activeKid.badgeProgress?.[b.id] || [];
-                  const done = prog.filter(Boolean).length;
-                  const total = b.stages.length;
-                  const pct = Math.round((done / total) * 100);
-                  return `
-                    <div style="margin-bottom: 10px; border-bottom: 1px solid var(--slate-100); padding-bottom: 8px;">
-                      <div style="display:flex; justify-content:space-between; font-size:12px;">
-                        <strong>${b.name}</strong>
-                        <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}%</span>
-                      </div>
-                      <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">
-                        ${done} of ${total} criteria passed • <span style="color:var(--slate-400);">${b.cat}</span>
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            </div>
-          </div>
           ` : ''}
         `;
         return;
@@ -1987,6 +1989,93 @@
         return;
       }
 
+      // TAB: EMAIL SYSTEM (COMPOSE, BULK SEND & DISPATCH LOG)
+      if (appState.tab === 'email_system') {
+        const secMembers = appState.members.filter(m => m.section === appState.section);
+        const parentEmails = [...new Set(secMembers.map(m => m.parentEmail || m.email).filter(Boolean))];
+        const emailsSent = appState.messages.filter(m => m.isEmail || (m.subject && !m.subject.includes('[URGENT]')));
+        const secEmailConfig = appState.sectionEmailSettings[appState.section] || {};
+
+        viewEl.innerHTML = `
+          <div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+              <span class="tag tag-blue">Communications Engine</span>
+              <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">Section & Group Email Dispatcher</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">
+                Send formatted messages, subs notices, and activity updates directly to registered parents and leaders.
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-outline" onclick="openMailtoClient()">
+                ↗ Open in Mail App (BCC All)
+              </button>
+              <button class="btn btn-primary" onclick="openComposeEmailModal()">
+                ✍️ Compose New Email
+              </button>
+            </div>
+          </div>
+
+          <div class="grid-3" style="margin-bottom: 16px;">
+            <div class="card">
+              <span class="tag tag-green">Section Contact Pool</span>
+              <div style="font-size: 24px; font-weight: 900; margin: 6px 0;">${parentEmails.length} Email Recipients</div>
+              <div style="font-size: 11px; color: var(--slate-500);">${secMembers.length} active young people registered in ${appState.section.toUpperCase()}</div>
+              ${secEmailConfig.fromEmail ? `<div style="margin-top:6px; font-size:11px; color:var(--primary-dark);">Sending as: <strong>${secEmailConfig.fromEmail}</strong></div>` : ''}
+              ${secEmailConfig.inboundEmail ? `<div style="font-size:11px; color:var(--slate-500);">Replies to: <strong>${secEmailConfig.inboundEmail}</strong></div>` : ''}
+            </div>
+            <div class="card">
+              <span class="tag tag-purple">Quick Template</span>
+              <div style="font-size: 13px; font-weight: 800; margin-top: 6px;">Term Subs Reminder</div>
+              <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; margin-top: 6px;" onclick="loadTemplateAndCompose('subs')">Use Template →</button>
+            </div>
+            <div class="card">
+              <span class="tag tag-amber">Emergency Broadcast</span>
+              <div style="font-size: 13px; font-weight: 800; margin-top: 6px;">Adverse Weather / Late Notice</div>
+              <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; margin-top: 6px;" onclick="loadTemplateAndCompose('weather')">Use Template →</button>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <div style="padding: 16px; border-bottom: 1px solid var(--slate-200); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3 style="font-size: 15px; font-weight: 800;">Dispatched Emails & Communications History</h3>
+                <p style="font-size: 11px; color: var(--slate-500);">Record of outgoing notifications and communications sent from this account.</p>
+              </div>
+              <span class="tag tag-blue">${emailsSent.length} logged messages</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="min-width: 140px;">Date & Time</th>
+                  <th>Recipient / Audience</th>
+                  <th>Subject</th>
+                  <th>Message Snippet</th>
+                  <th style="text-align: right;">Sender / Reply-To</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${emailsSent.length ? emailsSent.map(m => `
+                  <tr>
+                    <td style="font-size: 11px; color: var(--slate-500);">${m.timestamp || 'Recent'}</td>
+                    <td><strong>${m.recipient || m.audience || 'All Parents'}</strong></td>
+                    <td><strong style="color: var(--slate-800);">${m.subject}</strong></td>
+                    <td style="color: var(--slate-600); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${m.body || ''}</td>
+                    <td style="text-align: right;"><span class="tag tag-green">${m.sender || 'Leader'}</span></td>
+                  </tr>
+                `).join('') : `
+                  <tr>
+                    <td colspan="5" style="text-align: center; padding: 24px; color: var(--slate-400);">
+                      No dispatched emails on file yet. Click "Compose New Email" to send your first message.
+                    </td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        `;
+        return;
+      }
+
       // TAB 6: MESSAGES & URGENT BROADCASTS
       if (appState.tab === 'messages') {
         const msgList = appState.messages.map(m => `
@@ -2035,6 +2124,118 @@
         return;
       }
       await enterApp();
+    }
+
+    // --- EMAIL SYSTEM HELPERS & MODALS ---
+    function openMailtoClient() {
+      const secMembers = appState.members.filter(m => m.section === appState.section);
+      const parentEmails = [...new Set(secMembers.map(m => m.parentEmail || m.email).filter(Boolean))];
+      if (!parentEmails.length) {
+        alert('No registered email addresses found for this section.');
+        return;
+      }
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || { name: 'Scout Group' };
+      const subject = encodeURIComponent(`${curGroup.name} - ${appState.section.toUpperCase()} Update`);
+      const bcc = parentEmails.join(',');
+      window.location.href = `mailto:?bcc=${bcc}&subject=${subject}`;
+    }
+
+    function openComposeEmailModal(presetSubject = '', presetBody = '') {
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || { name: 'Scout Group' };
+      const secMembers = appState.members.filter(m => m.section === appState.section);
+      const recipientCount = [...new Set(secMembers.map(m => m.parentEmail || m.email).filter(Boolean))].length;
+      const secEmails = appState.sectionEmailSettings[appState.section] || {};
+      const defaultFrom = secEmails.fromEmail || `${appState.section.toLowerCase()}@${curGroup.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'scouts'}.org.uk`;
+      const defaultReply = secEmails.inboundEmail || defaultFrom;
+
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">✉️ Compose Section Email</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <form onsubmit="handleSendEmail(event)">
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Recipients / Target Group</label>
+                <select class="form-control" id="em-audience">
+                  <option value="section_parents">All ${appState.section.toUpperCase()} Parents (${recipientCount} contacts)</option>
+                  <option value="all_parents">All Parents in Group (Every Section)</option>
+                  <option value="leaders">Section & Group Leaders Only</option>
+                  <option value="overdue_subs">Parents with Unpaid / Overdue Subs</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Send From / Reply-To Email</label>
+                <input class="form-control" id="em-from-display" value="${defaultFrom}" required />
+                <div style="font-size: 10px; color: var(--slate-500); margin-top: 3px;">Configured in Super Admin Section Email Settings. Replies go to: <strong>${defaultReply}</strong></div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Subject Line *</label>
+              <input class="form-control" id="em-subject" required placeholder="e.g. Next Week's Pack Meeting & Kit List" value="${presetSubject.replace(/"/g, '&quot;')}" />
+            </div>
+
+            <div class="form-group">
+              <label>Message Content *</label>
+              <textarea class="form-control" id="em-body" rows="7" required placeholder="Dear Parents,&#10;&#10;Here are the details for our upcoming session...">${presetBody}</textarea>
+            </div>
+
+            <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; margin-bottom: 14px; font-size: 11px; color: var(--slate-600);">
+              💡 <em>This email will be logged in your section messages register with sender identity set to your section email address.</em>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary">✉️ Send Email Now</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function loadTemplateAndCompose(templateType) {
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || { name: 'Scout Group' };
+      const pricing = appState.sectionPricing[appState.section] || '£40.00';
+
+      if (templateType === 'subs') {
+        const subj = `${curGroup.name} - Term Subscriptions Reminder (${appState.section.toUpperCase()})`;
+        const body = `Dear Parents and Guardians,\n\nThis is a friendly reminder that subscriptions for this term (${pricing}) are now due for your young person.\n\nBank Payment Details:\nBank: ${appState.bankDetails.bankName || 'Group Account'}\nSort Code: ${appState.bankDetails.sortCode || '00-00-00'}\nAccount Number: ${appState.bankDetails.accountNumber || '00000000'}\nReference: [Child FirstName]-[Section]\n\nThank you for supporting our Scout Group.\n\nYours in Scouting,\n${appState.currentUser?.name || 'The Leadership Team'}`;
+        openComposeEmailModal(subj, body);
+      } else if (templateType === 'weather') {
+        const subj = `⚠️ Meeting Notice: Adverse Weather / Schedule Update`;
+        const body = `Dear Parents and Carers,\n\nPlease take note of an update regarding tonight's ${appState.section.toUpperCase()} meeting at ${curGroup.name}.\n\nDue to adverse weather conditions, we will be adapting tonight's session. Please ensure your young person attends with a warm waterproof coat and appropriate footwear.\n\nIf you have any questions or are running late, please reply directly to the leadership team.\n\nBest regards,\n${appState.currentUser?.name || 'Section Leader'}`;
+        openComposeEmailModal(subj, body);
+      }
+    }
+
+    async function handleSendEmail(e) {
+      e.preventDefault();
+      const audience = document.getElementById('em-audience').value;
+      const subject = document.getElementById('em-subject').value.trim();
+      const body = document.getElementById('em-body').value.trim();
+      const fromEmail = document.getElementById('em-from-display')?.value.trim() || appState.currentUser?.email;
+
+      const audienceLabels = {
+        section_parents: `All ${appState.section.toUpperCase()} Parents`,
+        all_parents: 'All Group Parents',
+        leaders: 'Leadership Team',
+        overdue_subs: 'Parents with Outstanding Subs'
+      };
+
+      closeAppModal();
+
+      await saveAndRefresh(api('POST', 'messages', {
+        groupId: appState.currentGroupId,
+        section: appState.section,
+        audience: audience,
+        recipient: audienceLabels[audience] || 'All Parents',
+        subject: subject,
+        body: body,
+        sender: fromEmail,
+        isEmail: true
+      }), 'Email successfully dispatched and recorded in communications history.');
     }
 
     // --- URGENT BROADCAST SENDER ---
@@ -2159,6 +2360,7 @@
         ['groups', 'Scout Groups'],
         ['sections', 'Sections'],
         ['subs', 'Subs Pricing'],
+        ['section_emails', '✉️ Section Email Addresses'],
         ['access', 'Leader Roles & Section Access'],
         ['people', 'Leaders & Parents']
       ];
@@ -2177,7 +2379,50 @@
       let content = '';
       const v = appState.adminSubView;
 
-      if (v === 'sections') {
+      if (v === 'section_emails') {
+        content = `
+          <div class="card">
+            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 4px;">Section Dedicated Email Routing</h3>
+            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
+              Configure custom sending (From / Reply-To) and inbound receipt email addresses for each section so leaders and parents use section-specific inboxes.
+            </p>
+            <form onsubmit="saveSectionEmailSettings(event)">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Section</th>
+                    <th>Outgoing / Send-As Email</th>
+                    <th>Inbound / Team Inbox (Receive)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${appState.sections.map(s => {
+                    const cfg = appState.sectionEmailSettings[s.id] || {};
+                    return `
+                      <tr>
+                        <td>
+                          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${s.color}; margin-right:6px;"></span>
+                          <strong>${s.name}</strong>
+                          <div style="font-size:10px; color:var(--slate-400);">${s.age}</div>
+                        </td>
+                        <td>
+                          <input type="email" class="form-control sec-from-email" data-sec="${s.id}" placeholder="e.g. ${s.id}@scoutgroup.org.uk" value="${cfg.fromEmail || ''}" />
+                        </td>
+                        <td>
+                          <input type="email" class="form-control sec-inbound-email" data-sec="${s.id}" placeholder="e.g. ${s.id}-leaders@scoutgroup.org.uk" value="${cfg.inboundEmail || ''}" />
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button type="submit" class="btn btn-primary">Save Section Email Routing</button>
+              </div>
+            </form>
+          </div>
+        `;
+      } else if (v === 'sections') {
         content = `
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <h3 style="font-size: 16px; font-weight: 800;">Sections (${appState.sections.length})</h3>
@@ -2480,6 +2725,17 @@
       const pricing = {};
       document.querySelectorAll('.price-input').forEach(el => { pricing[el.dataset.sec] = el.value; });
       submitAdmin(e, () => api('PATCH', 'sections', { pricing }), 'Subs prices saved.');
+    }
+
+    // Section emails configuration
+    function saveSectionEmailSettings(e) {
+      const sectionEmailSettings = {};
+      appState.sections.forEach(s => {
+        const fromVal = document.querySelector(`.sec-from-email[data-sec="${s.id}"]`)?.value.trim() || '';
+        const inVal = document.querySelector(`.sec-inbound-email[data-sec="${s.id}"]`)?.value.trim() || '';
+        sectionEmailSettings[s.id] = { fromEmail: fromVal, inboundEmail: inVal };
+      });
+      submitAdmin(e, () => api('PATCH', 'sections', { sectionEmailSettings }), 'Section email routing saved.');
     }
 
     // Leader roles & access
