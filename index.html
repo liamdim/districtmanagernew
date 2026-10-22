@@ -1405,4 +1405,727 @@
               <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
                   <h3 style="font-size: 15px; font-weight: 800;">Member Dossier & Subs Status</h3>
-                  <span class="tag ${activeKid.subs
+                <h3 style="font-size: 15px; font-weight: 800;">Member Dossier & Subs Status</h3>
+                <span class="tag ${activeKid.subsStatus === 'Paid' ? 'tag-green' : 'tag-amber'}">Subs: ${activeKid.subsStatus}</span>
+              </div>
+              <div style="font-size: 12px; display: grid; gap: 8px;">
+                <div><strong>DOB:</strong> ${activeKid.dob} (Age ${calculateAge(activeKid.dob).toFixed(1)})</div>
+                <div><strong>School:</strong> ${activeKid.school}</div>
+                <div><strong>Address:</strong> ${activeKid.address}</div>
+                <div><strong>Medical / Allergies:</strong> ${activeKid.medical}</div>
+                <div><strong>Gift Aid Claim:</strong> ${activeKid.giftAid ? '✓ Active (HMRC 25% tax reclaimed)' : 'No'}</div>
+              </div>
+
+              <div style="margin-top: 16px; padding: 12px; background: var(--slate-50); border-radius: 8px; border: 1px solid var(--slate-200);">
+                <div style="font-size: 11px; font-weight: 800; color: var(--slate-600); margin-bottom: 4px;">GROUP BANK PAYMENT REFERENCE:</div>
+                <div style="font-size: 12px; font-family: monospace;">Sort: ${appState.bankDetails.sortCode} | Acc: ${appState.bankDetails.accountNumber}</div>
+                <div style="font-size: 10px; color: var(--slate-500); margin-top: 4px;">Reference: <strong>${activeKid.firstName.toUpperCase()}-${activeKid.section.toUpperCase()}</strong></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">Earned Badges & In-Progress Awards</h3>
+              <div style="max-height: 250px; overflow-y: auto;">
+                ${kidBadges.map(b => {
+                  const prog = activeKid.badgeProgress?.[b.id] || [];
+                  const done = prog.filter(Boolean).length;
+                  const total = b.stages.length;
+                  const pct = Math.round((done / total) * 100);
+                  return `
+                    <div style="margin-bottom: 10px; border-bottom: 1px solid var(--slate-100); padding-bottom: 8px;">
+                      <div style="display:flex; justify-content:space-between; font-size:12px;">
+                        <strong>${b.name}</strong>
+                        <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}%</span>
+                      </div>
+                      <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">
+                        ${done} of ${total} criteria passed • <span style="color:var(--slate-400);">${b.cat}</span>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+          ` : ''}
+        `;
+        return;
+      }
+
+      if (appState.tab === 'pending_approval') {
+        viewEl.innerHTML = `
+          <div class="card" style="max-width: 560px; margin: 24px auto; text-align: center; padding: 32px;">
+            <h2 style="font-size: 18px; font-weight: 900; margin-bottom: 8px;">Leader Account Awaiting Approval</h2>
+            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
+              Thanks for registering, ${appState.currentUser?.firstName || 'volunteer'}. To protect young people's records, a Super Admin
+              needs to approve your leader account and choose which sections you can access. Check back once you've been approved.
+            </p>
+            <button class="btn btn-primary" onclick="enterApp()">Check Again</button>
+          </div>
+        `;
+        return;
+      }
+
+      if (appState.tab === 'leader_profile') {
+        viewEl.innerHTML = `
+          <div class="card" style="max-width: 680px; margin: 0 auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h2 style="font-size: 18px; font-weight: 900;">Complete Adult Leader Profile</h2>
+              <span class="tag tag-blue">${appState.currentUser?.email}</span>
+            </div>
+            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
+              Welcome! Confirm your volunteer info for <strong>${curGroup.name}</strong>.
+            </p>
+
+            <form onsubmit="saveLeaderProfile(event)">
+              <div class="grid-2">
+                <div class="form-group">
+                  <label>Full Name</label>
+                  <input class="form-control" id="lp-name" value="${appState.currentUser?.firstName || ''} ${appState.currentUser?.lastName || ''}" required />
+                </div>
+                <div class="form-group">
+                  <label>Contact Phone Number *</label>
+                  <input class="form-control" id="lp-phone" required placeholder="07700 900000" value="${appState.profile?.phone && appState.profile.phone !== 'TBC' ? appState.profile.phone : ''}" />
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label>Appointed Title</label>
+                  <input class="form-control" id="lp-title" value="${appState.profile?.leaderTitle && appState.profile.leaderTitle !== 'Section Leader' ? appState.profile.leaderTitle : 'Section Leader (Akela)'}" required />
+                </div>
+                <div class="form-group">
+                  <label>Home Section</label>
+                  <input class="form-control" value="${appState.section.toUpperCase()}" readonly style="background:var(--slate-100);" />
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Save Profile & Open Section Register →</button>
+            </form>
+          </div>
+        `;
+        return;
+      }
+
+      if (appState.tab === 'parent_profile_setup') {
+        viewEl.innerHTML = `
+          <div class="card" style="max-width: 680px; margin: 0 auto;">
+            <h2 style="font-size: 18px; font-weight: 900;">Enrol Your Young Person</h2>
+            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
+              Enrol your child in <strong>${curGroup.name} (${appState.section.toUpperCase()})</strong>.
+            </p>
+
+            <form onsubmit="handleDirectAddMember(event)">
+              <div class="grid-2">
+                <div class="form-group">
+                  <label>Child First Name *</label>
+                  <input class="form-control" id="nm-fn" required placeholder="e.g. Leo" />
+                </div>
+                <div class="form-group">
+                  <label>Child Last Name *</label>
+                  <input class="form-control" id="nm-ln" required placeholder="e.g. Walker" />
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label>Sub-Unit / Patrol</label>
+                  <input class="form-control" id="nm-patrol" value="New Intake" required />
+                </div>
+                <div class="form-group">
+                  <label>Date of Birth *</label>
+                  <input type="date" class="form-control" id="nm-dob" required />
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label>Parent Name *</label>
+                  <input class="form-control" id="nm-parent" value="${appState.currentUser?.firstName || ''} ${appState.currentUser?.lastName || ''}" required />
+                </div>
+                <div class="form-group">
+                  <label>Phone *</label>
+                  <input class="form-control" id="nm-phone" required placeholder="07700 900000" />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Home Address (Required for Gift Aid)</label>
+                <input class="form-control" id="nm-address" placeholder="12 High St, Postcode" required />
+              </div>
+
+              <div style="background: var(--emerald-50); border: 1px solid var(--emerald-100); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 11px;">
+                  <input type="checkbox" id="nm-giftaid" checked />
+                  <span><strong>HMRC Gift Aid Declaration:</strong> I confirm I am a UK taxpayer and want ${curGroup.name} to treat subscriptions as Gift Aid.</span>
+                </label>
+              </div>
+
+              <div class="form-group">
+                <label>Medical Notes / Allergies</label>
+                <textarea class="form-control" id="nm-med" rows="2" placeholder="List any medical notes or 'None'"></textarea>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="margin-top: 8px; width:100%; justify-content:center; padding:10px;">
+                Save & Open Parent Portal →
+              </button>
+            </form>
+          </div>
+        `;
+        return;
+      }
+
+      // TAB: PARENT VOLUNTEER ROTA (4-WEEK CHALLENGE)
+      if (appState.tab === 'parent_rota') {
+        const rotaRows = appState.parentRota.map(r => `
+          <tr>
+            <td><strong>${r.date}</strong></td>
+            <td>${r.section.toUpperCase()}</td>
+            <td>${r.duty}</td>
+            <td>${r.helper.includes('Available') ? `<span class="tag tag-amber">${r.helper}</span>` : `<span class="tag tag-green">✓ ${r.helper}</span>`}</td>
+            <td style="text-align: right;">
+              ${r.helper.includes('Available') ? `<button class="btn btn-primary" style="padding: 4px 8px;" onclick="volunteerForRota('${r.id}')">Volunteer for this night</button>` : ''}
+            </td>
+          </tr>
+        `).join('');
+
+        viewEl.innerHTML = `
+          <div class="card">
+            <h2 style="font-size: 18px; font-weight: 900;">Parent Volunteer Rota ("4-Week Challenge")</h2>
+            <p style="font-size: 12px; color: var(--slate-500); margin-top: 4px;">
+              Support our adult leaders! Sign up for a helper slot during term meetings.
+            </p>
+          </div>
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Session Date</th>
+                  <th>Section</th>
+                  <th>Helper Duty</th>
+                  <th>Volunteer</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>${rotaRows}</tbody>
+            </table>
+          </div>
+        `;
+        return;
+      }
+
+      // TAB 1: GROUP CENSUS & MOVE-UP WARNINGS
+      if (appState.tab === 'census') {
+        const allowed = getAvailableSections();
+        const moveUps = appState.members.map(m => ({ member: m, move: checkMoveUpStatus(m) })).filter(x => x.move.eligible);
+
+        const secCards = allowed.map(s => {
+          const youthCount = appState.members.filter(m => m.section === s.id).length;
+          return `
+            <div class="card">
+              <div style="color: ${s.color}; font-weight: 800; font-size: 11px; text-transform: uppercase;">${s.name}</div>
+              <div style="font-size: 26px; font-weight: 900; margin: 4px 0;">${youthCount} Active</div>
+              <div style="font-size: 11px; color: var(--slate-400);">Age ${s.age} • Subs: ${appState.sectionPricing[s.id] || '£40.00'}</div>
+            </div>
+          `;
+        }).join('');
+
+        const moveUpRows = moveUps.map(mu => `
+          <tr>
+            <td><strong>${mu.member.firstName} ${mu.member.lastName}</strong></td>
+            <td>${mu.member.section.toUpperCase()} (Age ${mu.move.ageYears})</td>
+            <td><span class="tag tag-amber">Ready for ${mu.move.target}</span></td>
+            <td>Leader handover notification due</td>
+          </tr>
+        `).join('');
+
+        viewEl.innerHTML = `
+          <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h2 style="font-size: 20px; font-weight: 900;">${curGroup.name} Operations Census</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">${curGroup.hq} • Charity #${curGroup.charityNo}</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <span class="tag tag-green" style="font-size: 12px; padding: 6px 12px;">Active Roll: ${appState.members.length}</span>
+              <span class="tag tag-blue" style="font-size: 12px; padding: 6px 12px;">Gift Aid: ${appState.members.filter(m => m.giftAid).length}</span>
+            </div>
+          </div>
+
+          <div class="grid-5">${secCards}</div>
+
+          <div class="card" style="margin-top: 16px;">
+            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 8px;">🚀 Section Transitions ("Moving-Up Soon" Engine)</h3>
+            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 12px;">Young people approaching age threshold for their next section.</p>
+            <div style="overflow-x: auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Young Person</th>
+                    <th>Current Section</th>
+                    <th>Transition Recommendation</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>${moveUpRows.length ? moveUpRows : '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--slate-400);">No young people currently due for section transfer.</td></tr>'}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      // TAB 2: YOUNG PEOPLE (WITH INSTANT LIVE SEARCH + INTOUCH ACTIONS)
+      if (appState.tab === 'young_people') {
+        const query = (appState.searchQuery || '').toLowerCase();
+        const sectionMembers = appState.members.filter(m => m.section === appState.section);
+        const filteredMembers = sectionMembers.filter(m => 
+          `${m.firstName} ${m.lastName}`.toLowerCase().includes(query) ||
+          (m.patrol && m.patrol.toLowerCase().includes(query)) ||
+          (m.school && m.school.toLowerCase().includes(query))
+        );
+
+        const subNav = `
+          <div class="subnav">
+            <button class="subnav-btn ${appState.ypSubView === 'directory' ? 'active' : ''}" onclick="appState.ypSubView='directory'; renderContent();">Active Members (${sectionMembers.length})</button>
+            <button class="subnav-btn ${appState.ypSubView === 'attendance' ? 'active' : ''}" onclick="appState.ypSubView='attendance'; renderContent();">Attendance Roll-Call</button>
+            <button class="subnav-btn alert ${appState.ypSubView === 'medication' ? 'active' : ''}" onclick="appState.ypSubView='medication'; renderContent();">🚨 Medical Flags</button>
+          </div>
+        `;
+
+        let subContent = '';
+        if (appState.ypSubView === 'directory') {
+          const rows = filteredMembers.map(m => `
+            <tr>
+              <td>
+                <div style="font-weight: 800; font-size: 13px;">${m.firstName} ${m.lastName}</div>
+                <div style="font-size: 11px; color: var(--slate-500);">${m.patrol} • DOB: ${m.dob} • ${m.school}</div>
+              </td>
+              <td>
+                <div style="font-weight: 700;">${m.parent}</div>
+                <div style="font-size: 11px; color: var(--slate-500);">${m.phone}</div>
+              </td>
+              <td>${m.giftAid ? '<span class="tag tag-green">✓ HMRC</span>' : '<span class="tag tag-blue">No</span>'}</td>
+              <td>${m.alert ? `<div class="tag tag-red">${m.medical}</div>` : `<span class="tag tag-green">None</span>`}</td>
+              <td style="text-align: right; white-space: nowrap;">
+                <button class="btn btn-outline" style="padding: 4px 8px;" onclick="cycleSubsStatus('${m.id}')">Subs: ${m.subsStatus}</button>
+              </td>
+            </tr>
+          `).join('');
+
+          subContent = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div class="search-box">
+                <span>🔍</span>
+                <input placeholder="Filter member name, patrol or school..." value="${appState.searchQuery}" oninput="appState.searchQuery=this.value; renderContent();" />
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-dark" onclick="openInTouchModal()">📋 POR 9.3 InTouch Pack</button>
+                <button class="btn btn-outline" onclick="openBadgeOrderModal()">🛍️ Badge Shopping List</button>
+                <button class="btn btn-primary" onclick="openAddChildModal()">+ Add New Member</button>
+              </div>
+            </div>
+
+            <div class="card" style="padding: 0; overflow-x: auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Young Person</th>
+                    <th>Emergency Contact</th>
+                    <th>Gift Aid</th>
+                    <th>Medical Flags</th>
+                    <th style="text-align: right;">Subs Ledger</th>
+                  </tr>
+                </thead>
+                <tbody>${rows.length ? rows : '<tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--slate-400);">No members match your search criteria.</td></tr>'}</tbody>
+              </table>
+            </div>
+          `;
+        } else if (appState.ypSubView === 'attendance') {
+          const cards = filteredMembers.map(m => `
+            <div class="att-card ${appState.attendance[m.id] || 'Unmarked'}" onclick="cycleAttendance('${m.id}')">
+              <div>
+                <div style="font-weight: 800; font-size: 13px;">${m.firstName} ${m.lastName}</div>
+                <div style="font-size: 11px; opacity: 0.8;">${m.patrol}</div>
+              </div>
+              <span class="att-badge">${appState.attendance[m.id] || 'Unmarked'}</span>
+            </div>
+          `).join('');
+
+          subContent = `
+            <div class="card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div>
+                  <h3 style="font-size: 16px; font-weight: 800;">Offline-Ready Attendance Roll-Call</h3>
+                  <p style="font-size: 12px; color: var(--slate-500);">Tap card to cycle: Present → Absent → Late → Explained</p>
+                </div>
+                <button class="btn btn-primary" onclick="markAllPresent()">Mark All Present</button>
+              </div>
+              <div class="grid-2">${cards}</div>
+            </div>
+          `;
+        } else {
+          const alertCards = filteredMembers.filter(m => m.alert).map(m => `
+            <div class="card" style="border: 1px solid var(--red-200); background: #fff5f5;">
+              <h4 style="font-size: 16px; font-weight: 900; color: var(--red-800);">${m.firstName} ${m.lastName}</h4>
+              <div style="font-size: 11px; color: var(--slate-600); margin-bottom: 6px;">${m.patrol} • NHS: ${m.nhs}</div>
+              <div style="background: white; padding: 8px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;">
+                <strong>Medical Detail:</strong> ${m.medical}
+              </div>
+              <a href="tel:${m.phone}" class="btn btn-danger" style="text-decoration: none;">Call Next of Kin (${m.parent})</a>
+            </div>
+          `).join('');
+
+          subContent = `<div class="grid-2">${alertCards.length ? alertCards : '<p style="color:var(--slate-400);">No medical alerts reported in this section.</p>'}</div>`;
+        }
+
+        viewEl.innerHTML = `${subNav}${subContent}`;
+        return;
+      }
+
+      // TAB 3: BADGES MATRIX
+      if (appState.tab === 'badges') {
+        const allSectionBadges = BADGES[appState.section] || [];
+        let curBadge = allSectionBadges.find(b => b.id === appState.selectedBadgeId) || allSectionBadges[0] || { id: 'default', name: 'Badge', cat: 'Badge', stages: ['Stage 1'] };
+        const activeMembers = appState.members.filter(m => m.section === appState.section);
+
+        const thStages = curBadge.stages.map((st, i) => `
+          <th style="text-align: center; min-width: 100px; font-size: 11px;" title="${st}">
+            <div style="color: var(--slate-400); font-size: 10px; font-weight: 800;">CRITERIA ${i+1}</div>
+            ${st}
+          </th>
+        `).join('');
+
+        const kidRows = activeMembers.map(m => {
+          const progress = m.badgeProgress?.[curBadge.id] || [];
+          const doneCount = progress.filter(Boolean).length;
+          const total = curBadge.stages.length;
+          const pct = Math.round((doneCount / total) * 100);
+
+          const stageToggles = curBadge.stages.map((st, idx) => {
+            const isDone = progress[idx] || false;
+            return `
+              <td style="text-align: center;">
+                <div style="display: flex; justify-content: center;">
+                  <div class="chk-stage ${isDone ? 'checked' : ''}" onclick="toggleKidStage('${m.id}', '${curBadge.id}', ${idx})">
+                    ${isDone ? '✓' : ''}
+                  </div>
+                </div>
+              </td>
+            `;
+          }).join('');
+
+          return `
+            <tr>
+              <td>
+                <div style="font-weight: 800;">${m.firstName} ${m.lastName}</div>
+                <div style="font-size: 10px; color: var(--slate-500);">${m.patrol}</div>
+              </td>
+              <td style="text-align: center;">
+                <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}% (${doneCount}/${total})</span>
+              </td>
+              ${stageToggles}
+            </tr>
+          `;
+        }).join('');
+
+        viewEl.innerHTML = `
+          <div class="card" style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <span class="tag tag-purple">${curBadge.cat}</span>
+                <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">${curBadge.name}</h2>
+                <p style="font-size: 12px; color: var(--slate-500);">${curBadge.stages.length} syllabus criteria • Section: ${appState.section.toUpperCase()}</p>
+              </div>
+
+              <div style="display: flex; gap: 8px;">
+                <select class="form-control" style="font-weight: 700;" onchange="selectBadge(this.value)">
+                  ${allSectionBadges.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+                </select>
+                <button class="btn btn-primary" onclick="openBadgeOrderModal()">Order Badges</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="min-width: 160px;">Young Person</th>
+                  <th style="text-align: center; width: 90px;">Progress</th>
+                  ${thStages}
+                </tr>
+              </thead>
+              <tbody>${kidRows}</tbody>
+            </table>
+          </div>
+        `;
+        return;
+      }
+
+      // TAB 4: PAYMENTS, SUBS & HMRC GIFT AID
+      if (appState.tab === 'payments') {
+        const giftAidMembers = appState.members.filter(m => m.giftAid);
+        const sectionMembers = appState.members.filter(m => m.section === appState.section);
+        const paidCount = sectionMembers.filter(m => m.subsStatus === 'Paid').length;
+        const totalReclaim = (giftAidMembers.length * 42 * 0.25).toFixed(2);
+
+        viewEl.innerHTML = `
+          <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h2 style="font-size: 20px; font-weight: 900;">Section Subs & HMRC Gift Aid</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">${curGroup.name} • Subs Rate: ${appState.sectionPricing[appState.section]} / term</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-primary" onclick="exportHMRCClaimFile()">📥 Download HMRC Bulk Schedule CSV</button>
+            </div>
+          </div>
+
+          <div class="grid-3">
+            <div class="card">
+              <span class="tag tag-green">Subs Collection</span>
+              <div style="font-size: 24px; font-weight: 900; margin: 6px 0;">${paidCount} / ${sectionMembers.length} Paid</div>
+              <div style="font-size: 11px; color: var(--slate-500);">${sectionMembers.length - paidCount} members outstanding</div>
+            </div>
+            <div class="card">
+              <span class="tag tag-blue">Gift Aid Reclaim</span>
+              <div style="font-size: 24px; font-weight: 900; margin: 6px 0;">£${totalReclaim}</div>
+              <div style="font-size: 11px; color: var(--slate-500);">${giftAidMembers.length} valid HMRC taxpayer declarations</div>
+            </div>
+            <div class="card">
+              <span class="tag tag-purple">Settlement Bank</span>
+              <div style="font-size: 13px; font-weight: 900; margin-top: 6px;">${appState.bankDetails.bankName}</div>
+              <div style="font-size: 11px; font-family: monospace;">${appState.bankDetails.sortCode} | ${appState.bankDetails.accountNumber}</div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Member Name</th>
+                  <th>Parent / Donor</th>
+                  <th>Postcode</th>
+                  <th>HMRC Tax Status</th>
+                  <th style="text-align: right;">Subs Ledger Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sectionMembers.map(m => `
+                  <tr>
+                    <td><strong>${m.firstName} ${m.lastName}</strong></td>
+                    <td>${m.parent}</td>
+                    <td>${m.address.split(',').pop() || 'DY8 1AA'}</td>
+                    <td>${m.giftAid ? '<span class="tag tag-green">✓ Valid Declaration</span>' : '<span class="tag tag-blue">Not Claimed</span>'}</td>
+                    <td style="text-align: right;">
+                      <button class="btn ${m.subsStatus === 'Paid' ? 'btn-primary' : 'btn-outline'}" style="padding: 4px 10px;" onclick="cycleSubsStatus('${m.id}')">
+                        ${m.subsStatus === 'Paid' ? '✓ Paid' : m.subsStatus === 'Overdue' ? '⚠️ Overdue' : 'Due (£' + appState.sectionPricing[appState.section] + ')'}
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+        return;
+      }
+
+      // TAB 5: PROGRAMME, CAMPS & DIGITAL CONSENTS
+      if (appState.tab === 'events') {
+        const eventsList = appState.events.map(e => `
+          <div class="card" style="margin-bottom: 0;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <h3 style="font-size: 16px; font-weight: 800;">${e.title}</h3>
+                <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">${e.date} • ${e.location}</div>
+              </div>
+              <span class="tag tag-green">${e.cost}</span>
+            </div>
+            <p style="font-size: 12px; color: var(--slate-600); margin: 8px 0;">${e.desc}</p>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--slate-100); padding-top:10px;">
+              <span style="font-size: 11px; color: var(--slate-400);">Permit: ${e.permit}</span>
+              <button class="btn btn-primary" onclick="openPORConsentModal('${e.id}')">POR-EV1 Consent</button>
+            </div>
+          </div>
+        `).join('');
+
+        viewEl.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h2 style="font-size: 18px; font-weight: 900;">Section Programme & Camp Logistics</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">Review calendar schedules and digital parent consent records.</p>
+            </div>
+          </div>
+          <div class="grid-2">${eventsList}</div>
+        `;
+        return;
+      }
+
+      // TAB 6: MESSAGES & URGENT BROADCASTS
+      if (appState.tab === 'messages') {
+        const msgList = appState.messages.map(m => `
+          <div class="card" style="margin-bottom: 12px; border-left: 4px solid ${m.subject.includes('URGENT') ? '#b91c1c' : 'var(--primary)'};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div>
+                <strong style="font-size: 14px;">${m.subject}</strong>
+                <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">From: ${m.sender} → To: ${m.recipient}</div>
+              </div>
+              <span style="font-size: 11px; color: var(--slate-400);">${m.timestamp}</span>
+            </div>
+            <p style="font-size: 12px; color: var(--slate-700); background: var(--slate-50); padding: 10px; border-radius: 6px; margin-top: 8px;">
+              ${m.body}
+            </p>
+          </div>
+        `).join('');
+
+        viewEl.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h2 style="font-size: 18px; font-weight: 900;">Section Notifications & Broadcasts</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">Emergency broadcast alerts and section communications.</p>
+            </div>
+            <button class="btn btn-danger" onclick="openBroadcastModal()">🚨 Urgent Alert</button>
+          </div>
+          <div>${msgList.length ? msgList : '<div class="card"><p style="color:var(--slate-400);">No broadcasts dispatched.</p></div>'}</div>
+        `;
+        return;
+      }
+    }
+
+
+    async function promptNewPassword(msg) {
+      const pw = prompt(msg);
+      if (!pw) return;
+      try {
+        await identity.updateUser({ password: pw });
+        alert('Password updated.');
+      } catch (err) {
+        alert(authErrorMessage(err));
+      }
+    }
+
+    async function saveLeaderProfile(e) {
+      e.preventDefault();
+      const [firstName, ...rest] = document.getElementById('lp-name').value.trim().split(/\s+/);
+      try {
+        await api('PATCH', 'profile', {
+          firstName,
+          lastName: rest.join(' '),
+          phone: document.getElementById('lp-phone').value,
+          leaderTitle: document.getElementById('lp-title').value
+        });
+        alert('Profile saved.');
+      } catch (err) {
+        alert('Could not save: ' + err.message);
+        return;
+      }
+      await enterApp();
+    }
+
+    // --- URGENT BROADCAST SENDER ---
+    function openBroadcastModal() {
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">🚨 Send Urgent Broadcast</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <form onsubmit="handleSendBroadcast(event)">
+            <div class="form-group">
+              <label>Target Section</label>
+              <input class="form-control" value="${appState.section.toUpperCase()}" readonly style="background: var(--slate-100);" />
+            </div>
+            <div class="form-group">
+              <label>Urgent Alert Subject</label>
+              <input class="form-control" id="bc-title" required placeholder="e.g. Coach delayed by 30 mins" />
+            </div>
+            <div class="form-group">
+              <label>Message Text</label>
+              <textarea class="form-control" id="bc-body" rows="3" required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
+              <button type="submit" class="btn btn-danger">🚨 Send Immediate Alert</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    async function handleSendBroadcast(e) {
+      e.preventDefault();
+      const subject = `🚨 [URGENT] ${document.getElementById('bc-title').value}`;
+      const body = document.getElementById('bc-body').value;
+      closeAppModal();
+      await saveAndRefresh(api('POST', 'messages', {
+        groupId: appState.currentGroupId,
+        section: appState.section,
+        audience: 'parents',
+        recipient: `All ${appState.section.toUpperCase()} Parents`,
+        subject,
+        body
+      }), 'Broadcast sent.');
+    }
+
+    // --- MODAL: POR-EV1 ACTIVITY CONSENT (signed consent is sent to the section leaders) ---
+    function openPORConsentModal(evtId) {
+      const evt = appState.events.find(x => x.id === evtId);
+      if (!evt) return;
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0] || { name: 'Scout Group' };
+      const userEmail = appState.currentUser?.email || '';
+      const myKids = appState.members.filter(m => m.parentEmail && m.parentEmail === userEmail);
+      const activeKid = myKids.find(k => k.id === appState.selectedChildId) || myKids[0];
+
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">POR Rule 9.1 Parental Consent</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="border-bottom: 2px solid var(--slate-900); padding-bottom: 8px; margin-bottom: 12px;">
+            <div style="font-size: 10px; font-weight: 900; color: var(--emerald-800); text-transform: uppercase;">The Scout Association Official Consent</div>
+            <h2 style="font-size: 15px; font-weight: 900;">POR-EV1 ACTIVITY CONSENT</h2>
+            <div style="font-size: 10px; color: var(--slate-500);">${curGroup.name}</div>
+          </div>
+          <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px; margin-bottom: 12px; font-size: 12px;">
+            <strong>Event:</strong> ${evt.title}<br>
+            <strong>Dates:</strong> ${evt.date}<br>
+            <strong>Location:</strong> ${evt.location}
+          </div>
+          ${activeKid ? `
+            <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; font-size: 11px; line-height: 1.4; margin-bottom: 16px;">
+              I give permission for <strong>${activeKid.firstName} ${activeKid.lastName}</strong> to take part in this activity. I authorise the Leader in Charge to give emergency medical consent if I cannot be contacted immediately.
+            </div>
+            <form onsubmit="handleSignConsent(event, '${activeKid.id}', '${evt.id}')">
+              <div class="form-group">
+                <label>Type Parent / Guardian Full Name to Sign *</label>
+                <input class="form-control" id="sig-name" required value="${activeKid.parent || ''}" />
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 10px;">
+                ✍️ Authorise & Submit E-Signature
+              </button>
+            </form>
+          ` : `<p style="font-size: 12px; color: var(--slate-500);">Consent forms are signed by the parent or guardian from the Parent Portal.</p>`}
+        </div>
+      `);
+    }
+
+    async function handleSignConsent(e, memberId, evtId) {
+      e.preventDefault();
+      const m = appState.members.find(x => x.id === memberId);
+      const evt = appState.events.find(x => x.id === evtId);
+      if (!m || !evt) return;
+      const signature = document.getElementById('sig-name').value.trim();
+      closeAppModal();
+      await saveAndRefresh(api('POST', 'messages', {
+        groupId: appState.currentGroupId,
+        subject: `POR-EV1 Consent: ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} – ${unescapeHtml(evt.title)}`,
+        body: `I give permission for ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} to take part in ${unescapeHtml(evt.title)} (${unescapeHtml(evt.date)}, ${unescapeHtml(evt.location)}). Signed electronically by ${signature} on ${localDate()}.`
+      }), 'Consent signed and sent to the section leaders.');
+    }
+
+    // Expose for src/auth.js, which starts the app once Netlify Identity is ready.
+    window.initApp = initApp;
+  </script>
+  <script type="module" src="/src/auth.js"></script>
+</body>
+</html>
