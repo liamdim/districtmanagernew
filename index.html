@@ -125,6 +125,9 @@
     .auth-tab-btn { flex: 1; padding: 12px; border: none; background: none; font-weight: 800; font-size: 13px; cursor: pointer; color: var(--slate-500); border-bottom: 2px solid transparent; }
     .auth-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 
+    .kid-tab-pill { border: 1px solid var(--slate-200); background: white; border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--slate-600); transition: all 0.15s; }
+    .kid-tab-pill.active { background: var(--purple-600); color: white; border-color: var(--purple-600); }
+
     @media print {
       body * { visibility: hidden; }
       #printable-form, #printable-form *, #printable-offline-manifest, #printable-offline-manifest * { visibility: visible; }
@@ -170,7 +173,7 @@
     </div>
   </header>
 
-  <!-- SECTION BAR (Hidden for Parents) -->
+  <!-- SECTION BAR (Filtered for Leaders, Hidden for Parents) -->
   <div class="section-bar" id="section-bar" style="display: none;">
     <div class="container section-inner" id="section-pills-container">
       <span class="sec-label">Section:</span>
@@ -191,10 +194,9 @@
   </div>
 
   <script>
-// --- ONLINE DATA LAYER (Netlify Identity sign-in + /api storage) ---
+    // --- ONLINE DATA LAYER ---
     const HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-    // Everything from the server is HTML-escaped once on arrival, because the views build innerHTML from it.
     function escapeDeep(v) {
       if (typeof v === 'string') return v.replace(/[&<>"']/g, c => HTML_ESC[c]);
       if (Array.isArray(v)) return v.map(escapeDeep);
@@ -225,7 +227,6 @@
       return data;
     }
 
-    // Runs a save, reports any error, then reloads from the server so the screen matches what was stored.
     async function saveAndRefresh(promise, successMsg) {
       try {
         await promise;
@@ -234,6 +235,104 @@
         alert('Could not save: ' + err.message);
       }
       await refreshApp();
+    }
+
+    // --- CURRICULUM DEFINITIONS ---
+    const UNIVERSAL_STAGED_BADGES = [
+      { id: 'stg-emergency', name: 'Emergency Aid Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Stage 1: Reassurance & 999 call', 'Stage 2: Recovery position & burns', 'Stage 3: CPR & severe bleeding control', 'Stage 4: Head trauma, fractures & asthma treatment', 'Stage 5: Full First Response / wilderness triage'] },
+      { id: 'stg-hikes', name: 'Hikes Away Staged Activity Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 Hike Away', '5 Hikes Away', '10 Hikes Away', '20 Hikes Away', '35 Hikes Away', '50 Hikes Away'] },
+      { id: 'stg-nights', name: 'Nights Away Staged Activity Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 Night Away', '5 Nights Away', '10 Nights Away', '20 Nights Away', '35 Nights Away', '50 Nights Away'] },
+      { id: 'stg-nav', name: 'Navigator Staged Activity Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Stage 1: Cardinal points & local map', 'Stage 2: 4-figure grid refs & OS symbols', 'Stage 3: 6-figure grid refs & bearings', 'Stage 4: Night & off-track micro-navigation'] },
+      { id: 'stg-water', name: 'Time on the Water Staged Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 session afloat', '5 sessions', '10 sessions', '20 sessions', '50 sessions'] },
+      { id: 'stg-paddle', name: 'Paddle Sports Staged Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Forward paddling', 'Capsize drill', 'Moving water rescue', 'Multi-day river trip'] },
+      { id: 'stg-sailing', name: 'Sailing Staged Activity Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Rigging & points of sail', 'Tacking & gybing', 'Capsize recovery', 'Day passage navigation'] },
+      { id: 'stg-swimmer', name: 'Swimmer Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Swim 10m & float', 'Swim 25m & entry', 'Swim 50m & surface dive', 'Swim 100m clothed', 'Lifesaving recovery & endurance'] },
+      { id: 'stg-community', name: 'Community Impact Staged Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['3 hrs community service', 'Campaign action', 'Impact evaluation', 'Project leadership'] },
+      { id: 'stg-music', name: 'Musician Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Simple rhythm', '2 pieces', 'Solo performance', 'Grade 5 equivalent', 'Orchestra/Band leader'] }
+    ];
+
+    const BADGES = {
+      squirrels: [
+        { id: 'sq-acorn', name: "Chief Scout's Acorn Award", cat: "Top Award", stages: ["Complete all 4 Challenge Awards", "Take part in 2 outdoor sessions", "Share your Squirrel journey"] },
+        { id: 'sq-feel-good', name: "Feel Good Challenge Award", cat: "Challenge Award", stages: ["Try a healthy snack", "Quiet reflection time", "Play an energetic team game"] },
+        { id: 'sq-explore', name: "Explore Outdoors Activity Badge", cat: "Activity Badge", stages: ["Spot 4 garden birds", "Collect 5 natural items on a trail", "Splash in rain or walk in wind safely"] },
+        ...UNIVERSAL_STAGED_BADGES
+      ],
+      beavers: [
+        { id: 'bv-bronze', name: "Chief Scout's Bronze Award", cat: "Top Award", stages: ["Complete all 6 Challenge Awards", "Complete 4 Activity/Staged badges", "Personal project presentation"] },
+        { id: 'bv-adventure', name: "My Adventure Challenge Award", cat: "Challenge Award", stages: ["Try 2 adventurous activities", "Pack your own kit bag", "Play 3 new team games"] },
+        { id: 'bv-outdoors', name: "My Outdoors Challenge Award", cat: "Challenge Award", stages: ["Camp overnight or sleepover", "Cook outdoors on a fire", "Learn safe campfire rules"] },
+        ...UNIVERSAL_STAGED_BADGES
+      ],
+      cubs: [
+        { id: 'cb-silver', name: "Chief Scout's Silver Award", cat: "Top Award", stages: ["Complete all 6 Challenge Awards", "Complete 6 Activity or Staged badges", "Lead a personal project"] },
+        { id: 'cb-adventure', name: "Our Adventure Challenge Award", cat: "Challenge Award", stages: ["2 Nights away camping under canvas", "2 adventurous activities (climbing, kayaking)", "Pack your rucksack", "Camp safety quiz"] },
+        { id: 'cb-skills', name: "Our Skills Challenge Award", cat: "Challenge Award", stages: ["Learn 3 new practical skills", "Tie reef knot & clove hitch", "Maintain fitness log"] },
+        { id: 'cb-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Participate in 6 team challenges", "Lead your Six through an exercise"] },
+        ...UNIVERSAL_STAGED_BADGES
+      ],
+      scouts: [
+        { id: 'sc-gold', name: "Chief Scout's Gold Award", cat: "Top Award", stages: ["Complete all 9 Challenge Awards", "Complete 6 Activity or Staged badges", "Expedition Challenge"] },
+        { id: 'sc-outdoor', name: "Outdoor Challenge Award", cat: "Challenge Award", stages: ["4 Nights away camping", "Build pioneering structures", "Track animal prints", "Axe and saw safety qualification"] },
+        ...UNIVERSAL_STAGED_BADGES
+      ],
+      explorers: [
+        { id: 'ex-platinum', name: "Chief Scout's Platinum Award", cat: "Top Award", stages: ["DofE Bronze or equivalent", "Complete 2 ICV list items", "4 Nights away camping"] },
+        ...UNIVERSAL_STAGED_BADGES
+      ]
+    };
+
+    // --- APPLICATION STATE ---
+    const appState = {
+      isAuthenticated: false,
+      authTab: 'signin',
+      currentUser: null,
+      role: 'super_admin',
+      section: 'cubs',
+      tab: 'census',
+      ypSubView: 'directory',
+      adminSubView: 'groups',
+      paySubView: 'bank',
+      badgeFilter: 'ALL',
+      selectedBadgeId: '',
+      currentGroupId: '',
+      selectedChildId: '', // Keeps track of active child in Parent Portal
+      
+      loading: true,
+      profile: null,
+      pendingApproval: false,
+      attendanceDate: '',
+
+      groups: [],
+      sections: [],
+      bankDetails: { bankName: '', accountName: '', sortCode: '', accountNumber: '', settlementNotes: '' },
+      sectionPricing: {},
+
+      leaders: [],
+      members: [],
+      leftMembers: [],
+      activities: [],
+      programme: [],
+      events: [],
+      attendance: {},
+      messages: []
+    };
+
+    // Returns only sections that the current user has access to view
+    function getAvailableSections() {
+      if (appState.role === 'super_admin' || appState.profile?.isAdmin) {
+        return appState.sections;
+      }
+      if (appState.role === 'leader') {
+        const p = appState.profile;
+        if (!p) return [];
+        if (p.allSectionsAccess) return appState.sections;
+        
+        const allowedIds = new Set(p.sections || []);
+        if (p.section) allowedIds.add(p.section);
+        return appState.sections.filter(s => allowedIds.has(s.id));
+      }
+      return appState.sections;
     }
 
     async function loadData() {
@@ -258,8 +357,11 @@
       appState.attendanceDate = data.attendanceDate;
 
       appState.sections.forEach(s => { if (!BADGES[s.id]) BADGES[s.id] = [...UNIVERSAL_STAGED_BADGES]; });
-      if (!appState.sections.find(s => s.id === appState.section)) {
-        appState.section = appState.sections[0]?.id || '';
+
+      // Enforce section role restriction
+      const available = getAvailableSections();
+      if (!available.find(s => s.id === appState.section)) {
+        appState.section = available[0]?.id || '';
       }
     }
 
@@ -292,7 +394,6 @@
       return err.message || 'Something went wrong. Please try again.';
     }
 
-    // Called once Netlify Identity has loaded (see src/auth.js).
     async function initApp() {
       try {
         const dir = escapeDeep(await api('GET', 'directory'));
@@ -320,28 +421,6 @@
       else renderContent();
     }
 
-    async function promptNewPassword(msg) {
-      const pw = prompt(msg);
-      if (!pw) return;
-      try {
-        await identity.updateUser({ password: pw });
-        alert('Password updated.');
-      } catch (err) {
-        alert(authErrorMessage(err));
-      }
-    }
-
-    async function handleForgotPassword() {
-      const email = prompt('Enter your account email and we will send you a password reset link:', document.getElementById('auth-email')?.value || '');
-      if (!email) return;
-      try {
-        await identity.requestPasswordRecovery(email);
-        alert('Check your email for a password reset link.');
-      } catch (err) {
-        alert(authErrorMessage(err));
-      }
-    }
-
     async function enterApp() {
       appState.isAuthenticated = true;
       appState.loading = true;
@@ -367,7 +446,14 @@
         section: p.section
       };
       appState.role = p.isAdmin ? 'super_admin' : (p.userType === 'leader' ? 'leader' : 'parent');
-      if (p.section && appState.sections.find(s => s.id === p.section)) appState.section = p.section;
+
+      // Make sure section adheres to permissions
+      const permittedSections = getAvailableSections();
+      if (p.section && permittedSections.find(s => s.id === p.section)) {
+        appState.section = p.section;
+      } else if (permittedSections.length > 0) {
+        appState.section = permittedSections[0].id;
+      }
 
       document.getElementById('main-header').style.display = 'block';
       document.querySelector('.persona-bar').style.display = p.isAdmin ? 'flex' : 'none';
@@ -392,301 +478,8 @@
       else if (appState.role === 'leader') setTab(p.phone === 'TBC' ? 'leader_profile' : 'census');
       else setTab(appState.members.length ? 'parent_portal' : 'parent_profile_setup');
     }
-    // --- FULL OFFICIAL SCOUTS.ORG.UK CURRICULUM ---
-    const UNIVERSAL_STAGED_BADGES = [
-      { id: 'stg-emergency', name: 'Emergency Aid Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Stage 1: Reassurance & 999 call', 'Stage 2: Recovery position & burns', 'Stage 3: CPR & severe bleeding control', 'Stage 4: Head trauma, fractures & asthma treatment', 'Stage 5: Full First Response / wilderness triage'] },
-      { id: 'stg-hikes', name: 'Hikes Away Staged Activity Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 Hike Away', '5 Hikes Away', '10 Hikes Away', '20 Hikes Away', '35 Hikes Away', '50 Hikes Away'] },
-      { id: 'stg-nights', name: 'Nights Away Staged Activity Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 Night Away', '5 Nights Away', '10 Nights Away', '20 Nights Away', '35 Nights Away', '50 Nights Away'] },
-      { id: 'stg-nav', name: 'Navigator Staged Activity Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Stage 1: Cardinal points & local map', 'Stage 2: 4-figure grid refs & OS symbols', 'Stage 3: 6-figure grid refs & bearings', 'Stage 4: Night & off-track micro-navigation'] },
-      { id: 'stg-water', name: 'Time on the Water Staged Badge (Stages 1–50)', cat: 'Staged Badge', stages: ['1 session afloat', '5 sessions', '10 sessions', '20 sessions', '50 sessions'] },
-      { id: 'stg-paddle', name: 'Paddle Sports Staged Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Forward paddling', 'Capsize drill', 'Moving water rescue', 'Multi-day river trip'] },
-      { id: 'stg-sailing', name: 'Sailing Staged Activity Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['Rigging & points of sail', 'Tacking & gybing', 'Capsize recovery', 'Day passage navigation'] },
-      { id: 'stg-swimmer', name: 'Swimmer Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Swim 10m & float', 'Swim 25m & entry', 'Swim 50m & surface dive', 'Swim 100m clothed', 'Lifesaving recovery & endurance'] },
-      { id: 'stg-community', name: 'Community Impact Staged Badge (Stages 1–4)', cat: 'Staged Badge', stages: ['3 hrs community service', 'Campaign action', 'Impact evaluation', 'Project leadership'] },
-      { id: 'stg-music', name: 'Musician Staged Activity Badge (Stages 1–5)', cat: 'Staged Badge', stages: ['Simple rhythm', '2 pieces', 'Solo performance', 'Grade 5 equivalent', 'Orchestra/Band leader'] }
-    ];
-
-    const BADGES = {
-      squirrels: [
-        { id: 'sq-acorn', name: "Chief Scout's Acorn Award", cat: "Top Award", stages: ["Complete all 4 Challenge Awards", "Take part in 2 outdoor sessions", "Share your Squirrel journey"] },
-        { id: 'sq-feel-good', name: "Feel Good Challenge Award", cat: "Challenge Award", stages: ["Try a healthy snack", "Quiet reflection time", "Play an energetic team game"] },
-        { id: 'sq-all-about-me', name: "All About Me Challenge Award", cat: "Challenge Award", stages: ["Make a family tree drawing", "Express a hobby to the Drey", "Learn about emotions"] },
-        { id: 'sq-adventure', name: "All About Adventure Challenge Award", cat: "Challenge Award", stages: ["Campfire games", "First walk in the woods", "Pack a day bag"] },
-        { id: 'sq-explore', name: "Explore Outdoors Activity Badge", cat: "Activity Badge", stages: ["Spot 4 garden birds", "Collect 5 natural items on a trail", "Splash in rain or walk in wind safely"] },
-        { id: 'sq-active', name: "Be Active Activity Badge", cat: "Activity Badge", stages: ["Try 3 new body movements", "Lead a movement game", "Drink water and cool down"] },
-        { id: 'sq-builder', name: "Brilliant Builder Activity Badge", cat: "Activity Badge", stages: ["Build a den with chairs/blankets", "Construct a model with bricks", "Explain how you built it"] },
-        { id: 'sq-experiments', name: "Exciting Experiments Activity Badge", cat: "Activity Badge", stages: ["Sink or float water experiment", "Mix colors experiment", "Observe shadows"] },
-        { id: 'sq-creative', name: "Get Creative Activity Badge", cat: "Activity Badge", stages: ["Make a leaf/twig rubbing", "Paint with natural items", "Make a model"] },
-        { id: 'sq-wild', name: "Go Wild Activity Badge", cat: "Activity Badge", stages: ["Build a simple bird feeder", "Look under logs for mini-beasts", "Recycle litter"] },
-        { id: 'sq-grow', name: "Let It Grow Activity Badge", cat: "Activity Badge", stages: ["Plant seeds in soil", "Water plants and watch growth", "Identify common garden plants"] },
-        { id: 'sq-story', name: "Story Time Activity Badge", cat: "Activity Badge", stages: ["Listen to an adventure story", "Dress up as a character", "Act out an animal role"] },
-        { id: 'sq-super', name: "Super Squirrel Activity Badge", cat: "Activity Badge", stages: ["Help an adult with a task", "Say thank you to a helper", "Tidy up after a pack session"] },
-        ...UNIVERSAL_STAGED_BADGES
-      ],
-      beavers: [
-        { id: 'bv-bronze', name: "Chief Scout's Bronze Award", cat: "Top Award", stages: ["Complete all 6 Challenge Awards", "Complete 4 Activity/Staged badges", "Personal project presentation"] },
-        { id: 'bv-adventure', name: "My Adventure Challenge Award", cat: "Challenge Award", stages: ["Try 2 adventurous activities", "Pack your own kit bag", "Play 3 new team games"] },
-        { id: 'bv-outdoors', name: "My Outdoors Challenge Award", cat: "Challenge Award", stages: ["Camp overnight or sleepover", "Cook outdoors on a fire", "Learn safe campfire rules"] },
-        { id: 'bv-skills', name: "My Skills Challenge Award", cat: "Challenge Award", stages: ["Try 2 new hobbies", "Learn 2 basic knots", "Practice emergency dialing 999"] },
-        { id: 'bv-world', name: "My World Challenge Award", cat: "Challenge Award", stages: ["Local community service project", "Celebrate a world festival", "Eco recycling session"] },
-        { id: 'bv-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Play in 4 team games", "Help set up the hall", "Support a newer Beaver"] },
-        { id: 'bv-personal', name: "Personal Challenge Award", cat: "Challenge Award", stages: ["Complete 2 personal goals set with your leader"] },
-        { id: 'bv-air', name: "Air Activities Badge", cat: "Activity Badge", stages: ["Make paper gliders", "Visit an airfield or identify 4 aircraft", "Learn why planes fly"] },
-        { id: 'bv-animal', name: "Animal Friend Activity Badge", cat: "Activity Badge", stages: ["Look after a pet for 2 weeks", "Feed garden birds", "Learn how animals stay safe"] },
-        { id: 'bv-book', name: "Book Reader Activity Badge", cat: "Activity Badge", stages: ["Read 3 books", "Design a bookmark", "Explain your favourite character"] },
-        { id: 'bv-builder', name: "Builder Activity Badge", cat: "Activity Badge", stages: ["Draw a construction plan", "Build a structure from boxes/blocks", "Test structure stability"] },
-        { id: 'bv-craft', name: "Camp Craft Activity Badge", cat: "Activity Badge", stages: ["Help put up a tent", "Pack an overnight bag", "Cook toast or damper on an open fire"] },
-        { id: 'bv-collector', name: "Collector Activity Badge", cat: "Activity Badge", stages: ["Build a collection over 6 weeks", "Display collection to the Lodge", "Explain why you chose it"] },
-        { id: 'bv-communicator', name: "Communicator Activity Badge", cat: "Activity Badge", stages: ["Learn fingerspelling in BSL", "Decode a message", "Memorize a message and pass it on"] },
-        { id: 'bv-cyclist', name: "Cyclist Activity Badge", cat: "Activity Badge", stages: ["Check tyre pressure & brakes", "Demonstrate safe helmet fitting", "Complete 1km controlled cycle ride"] },
-        { id: 'bv-disability', name: "Disability Awareness Activity Badge", cat: "Activity Badge", stages: ["Learn about assistance dogs", "Try a game with blindfolds or earplugs", "Identify accessible building ramps"] },
-        { id: 'bv-experiment', name: "Experiment Activity Badge", cat: "Activity Badge", stages: ["Perform 3 science experiments", "Record what happened", "Explain the science"] },
-        { id: 'bv-explore', name: "Explore Activity Badge", cat: "Activity Badge", stages: ["Plan a local walk", "Spot 5 landmarks", "Point out North with a compass"] },
-        { id: 'bv-faith', name: "Faith Activity Badge", cat: "Activity Badge", stages: ["Visit a place of worship", "Learn a religious prayer or story", "Reflect with the colony"] },
-        { id: 'bv-global', name: "Global Issues Activity Badge", cat: "Activity Badge", stages: ["Learn about clean water issues", "Find where local foods come from", "Recycle materials"] },
-        { id: 'bv-fitness', name: "Health & Fitness Activity Badge", cat: "Activity Badge", stages: ["Keep an active log for 2 weeks", "Explain healthy meal balanced plate", "Brush teeth correctly demo"] },
-        { id: 'bv-hobbies', name: "Hobbies Activity Badge", cat: "Activity Badge", stages: ["Show your hobby to the Colony", "Bring in items you made or used", "Explain how you practice it"] },
-        { id: 'bv-intl', name: "International Activity Badge", cat: "Activity Badge", stages: ["Learn words in 2 foreign languages", "Taste traditional food from another country", "Scout badge swap"] },
-        { id: 'bv-photo', name: "Photographer Activity Badge", cat: "Activity Badge", stages: ["Take 6 photos of animals or landmarks", "Create a digital collage", "Show photos to the Colony"] },
-        { id: 'bv-safety', name: "Safety Activity Badge", cat: "Activity Badge", stages: ["Explain home hazard dangers", "Practice safe road crossing", "Water safety green cross code"] },
-        { id: 'bv-space', name: "Space Activity Badge", cat: "Activity Badge", stages: ["Identify the solar system planets", "Spot the Moon phases", "Design a working spacecraft model"] },
-        { id: 'bv-sports', name: "Sports Activity Badge", cat: "Activity Badge", stages: ["Take part in an organized sport for 4 weeks", "Explain the rules", "Show good sportsmanship"] },
-        ...UNIVERSAL_STAGED_BADGES
-      ],
-      cubs: [
-        { id: 'cb-silver', name: "Chief Scout's Silver Award", cat: "Top Award", stages: ["Complete all 6 Challenge Awards", "Complete 6 Activity or Staged badges", "Lead a personal project"] },
-        { id: 'cb-adventure', name: "Our Adventure Challenge Award", cat: "Challenge Award", stages: ["2 Nights away camping under canvas", "2 adventurous activities (climbing, kayaking)", "Pack your rucksack", "Camp safety quiz"] },
-        { id: 'cb-world', name: "Our World Challenge Award", cat: "Challenge Award", stages: ["Community service (2 hrs)", "Environmental clean-up", "Sustainable Scouting workshop", "International celebration"] },
-        { id: 'cb-skills', name: "Our Skills Challenge Award", cat: "Challenge Award", stages: ["Learn 3 new practical skills", "Tie reef knot & clove hitch", "Maintain fitness log"] },
-        { id: 'cb-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Participate in 6 team challenges", "Lead your Six through an exercise"] },
-        { id: 'cb-leader', name: "Team Leader Challenge Award", cat: "Challenge Award", stages: ["Serve as Sixer or Seconder", "Demonstrate inclusive leadership"] },
-        { id: 'cb-personal', name: "Personal Challenge Award", cat: "Challenge Award", stages: ["Complete 2 targets agreed with Akela"] },
-        { id: 'cb-animal', name: "Animal Carer Activity Badge", cat: "Activity Badge", stages: ["Care for an animal for 1 month", "Know proper food requirements", "Explain RSPCA/welfare checks"] },
-        { id: 'cb-artist', name: "Artist Activity Badge", cat: "Activity Badge", stages: ["Create 2 paintings or drawings", "Sculpt with clay or papier-mâché", "Present art to the Pack"] },
-        { id: 'cb-astronomer', name: "Astronomer Activity Badge", cat: "Activity Badge", stages: ["Identify Polaris & Ursa Major", "Explain red planet Mars", "Observe moon with telescope or binoculars"] },
-        { id: 'cb-athletics', name: "Athlete Activity Badge", cat: "Activity Badge", stages: ["Complete sprint 50m", "Complete distance run", "High or long jump target reached"] },
-        { id: 'cb-backwoods', name: "Backwoods Cooking Activity Badge", cat: "Activity Badge", stages: ["Light an altar fire with matches", "Cook twist or potatoes in embers without utensils", "Extinguish fire safely"] },
-        { id: 'cb-book', name: "Book Reader Activity Badge", cat: "Activity Badge", stages: ["Read 6 books over 3 months", "Review your favorite novel", "Show how to care for library books"] },
-        { id: 'cb-chef', name: "Chef Activity Badge", cat: "Activity Badge", stages: ["Food hygiene check", "Cook 2-course meal on camp", "Plan a healthy pack night menu", "Safe knife handling"] },
-        { id: 'cb-collector', name: "Collector Activity Badge", cat: "Activity Badge", stages: ["Show an organized collection", "Catalog entries", "Explain history of items"] },
-        { id: 'cb-communicator', name: "Communicator Activity Badge", cat: "Activity Badge", stages: ["Send and receive a simple Morse code message", "Use a two-way radio correctly", "Learn a 20-word phrase in another language"] },
-        { id: 'cb-cyclist', name: "Cyclist Activity Badge", cat: "Activity Badge", stages: ["Adjust saddle height & check tyre pressure", "Ride a 5km cycle route safely", "Explain highway code for cyclists"] },
-        { id: 'cb-diy', name: "DIY Activity Badge", cat: "Activity Badge", stages: ["Use a hammer and screwdriver safely", "Saw a piece of wood square", "Build a bird box or tool rack"] },
-        { id: 'cb-disability', name: "Disability Awareness Activity Badge", cat: "Activity Badge", stages: ["Learn the Braille alphabet", "Communicate without speaking", "Map accessibility barriers"] },
-        { id: 'cb-entertainer', name: "Entertainer Activity Badge", cat: "Activity Badge", stages: ["Perform magic tricks, comedy, or juggling", "Put on a puppet show or sketch for the Pack"] },
-        { id: 'cb-env', name: "Environmental Conservation Activity Badge", cat: "Activity Badge", stages: ["Take part in a conservation project (litter pick, tree planting)", "Monitor local bird or bug population"] },
-        { id: 'cb-equestrian', name: "Equestrian Activity Badge", cat: "Activity Badge", stages: ["Demonstrate how to approach a horse safely", "Groom a pony", "Ride at walk and trot"] },
-        { id: 'cb-firesafety', name: "Fire Safety Activity Badge", cat: "Activity Badge", stages: ["Demonstrate stop, drop, and roll", "Explain smoke alarm battery checks", "Plan a home fire escape route"] },
-        { id: 'cb-gardener', name: "Gardener Activity Badge", cat: "Activity Badge", stages: ["Grow flowers or vegetables from seed", "Weed a garden bed", "Identify 4 garden pest species"] },
-        { id: 'cb-hobbies', name: "Hobbies Activity Badge", cat: "Activity Badge", stages: ["Maintain a hobby for at least 4 months", "Show recent work to your leader"] },
-        { id: 'cb-homehelp', name: "Home Help Activity Badge", cat: "Activity Badge", stages: ["Iron a neckerchief", "Wash and dry dishes after a family meal", "Make your bed for a week"] },
-        { id: 'cb-homesafety', name: "Home Safety Activity Badge", cat: "Activity Badge", stages: ["Identify 6 home hazards", "Know 999 emergency info", "Show first aid for scalds"] },
-        { id: 'cb-intl', name: "International Activity Badge", cat: "Activity Badge", stages: ["Study another country's Scouting section", "Cook an authentic international recipe", "Learn currency exchange"] },
-        { id: 'cb-localknowledge', name: "Local Knowledge Activity Badge", cat: "Activity Badge", stages: ["Give directions to 3 local landmarks", "Know your local council history", "Produce a town guide leaflet"] },
-        { id: 'cb-martialarts', name: "Martial Arts Activity Badge", cat: "Activity Badge", stages: ["Train regularly in karate, judo, or taekwondo", "Show kata/forms and etiquette"] },
-        { id: 'cb-naturalist', name: "Naturalist Activity Badge", cat: "Activity Badge", stages: ["Identify 6 wild flowers or trees", "Spot 4 species of wild birds", "Keep a nature diary"] },
-        { id: 'cb-personalsafety', name: "Personal Safety Activity Badge", cat: "Activity Badge", stages: ["Explain online safety & password rules", "Stranger awareness", "Road safety"] },
-        { id: 'cb-photo', name: "Photographer Activity Badge", cat: "Activity Badge", stages: ["Take a series of 10 photos of a pack event", "Crop and edit digital images"] },
-        { id: 'cb-pioneer', name: "Pioneer Activity Badge", cat: "Activity Badge", stages: ["Tie clove hitch and timber hitch", "Construct a mini pioneering tripod or raft", "Store ropes correctly"] },
-        { id: 'cb-roadsafety', name: "Road Safety Activity Badge", cat: "Activity Badge", stages: ["Demonstrate Green Cross Code", "Night visibility reflective check", "Identify UK road signs"] },
-        { id: 'cb-scientist', name: "Scientist Activity Badge", cat: "Activity Badge", stages: ["Air pressure test", "Chemical reaction", "Magnet test"] },
-        { id: 'cb-skater', name: "Skater Activity Badge", cat: "Activity Badge", stages: ["Demonstrate balance on rollerblades or skateboard", "Perform controlled stop and turn with helmet"] },
-        { id: 'cb-sports', name: "Sports Enthusiast Activity Badge", cat: "Activity Badge", stages: ["Follow a sport through a full season", "Explain player positions and referee signs"] },
-        { id: 'cb-water', name: "Water Activities Badge", cat: "Activity Badge", stages: ["Explain safety rules on canal/river banks", "Put on a buoyancy aid correctly", "Take part in rowing or canoeing"] },
-        { id: 'cb-faiths', name: "World Faiths Activity Badge", cat: "Activity Badge", stages: ["Visit 2 different religious buildings", "Explain holy festival meanings", "Show respect for customs"] },
-        ...UNIVERSAL_STAGED_BADGES
-      ],
-      scouts: [
-        { id: 'sc-gold', name: "Chief Scout's Gold Award", cat: "Top Award", stages: ["Complete all 9 Challenge Awards", "Complete 6 Activity or Staged badges", "Expedition Challenge"] },
-        { id: 'sc-expedition', name: "Expedition Challenge Award", cat: "Challenge Award", stages: ["Plan 2-day self-sufficient route", "Navigate without adult escort", "Pitch overnight camp", "Cook on trail stoves"] },
-        { id: 'sc-outdoor', name: "Outdoor Challenge Award", cat: "Challenge Award", stages: ["4 Nights away camping", "Build pioneering structures", "Track animal prints", "Axe and saw safety qualification"] },
-        { id: 'sc-adventure', name: "Adventure Challenge Award", cat: "Challenge Award", stages: ["Take part in 4 adventurous pursuits (climbing, caving, abseiling, rafting)"] },
-        { id: 'sc-skills', name: "Skills Challenge Award", cat: "Challenge Award", stages: ["Learn complex knotting & splicing", "Maintain bicycle or gear", "Demonstrate life skill"] },
-        { id: 'sc-creative', name: "Creative Challenge Award", cat: "Challenge Award", stages: ["Produce performance or video", "Design promotional artwork", "Write camp newspaper"] },
-        { id: 'sc-world', name: "World Challenge Award", cat: "Challenge Award", stages: ["Investigate global issue", "Environmental conservation 4 hrs", "Scouts of the World discovery"] },
-        { id: 'sc-teamwork', name: "Teamwork Challenge Award", cat: "Challenge Award", stages: ["Lead team under difficult conditions", "Solve troop initiative test"] },
-        { id: 'sc-leader', name: "Team Leader Challenge Award", cat: "Challenge Award", stages: ["Hold Patrol Leader or Assistant Patrol Leader position for 3 months"] },
-        { id: 'sc-personal', name: "Personal Challenge Award", cat: "Challenge Award", stages: ["Two personal breakthrough goals agreed with Scout Leader"] },
-        { id: 'sc-angler', name: "Angler Activity Badge", cat: "Activity Badge", stages: ["Know closed season rules", "Handle fish safely without injury", "Set up tackle and catch a fish"] },
-        { id: 'sc-astronomer', name: "Astronomer Activity Badge", cat: "Activity Badge", stages: ["Map constellations", "Explain solar/lunar eclipses", "Observe deep-sky object with scope"] },
-        { id: 'sc-athletics', name: "Athletics Activity Badge", cat: "Activity Badge", stages: ["Perform in 4 track and field events with standardized qualifying times/distances"] },
-        { id: 'sc-aviation', name: "Basic Aviation Activity Badge", cat: "Activity Badge", stages: ["Explain principles of lift and control surfaces", "Read an aeronautical sectional chart"] },
-        { id: 'sc-caver', name: "Caver Activity Badge", cat: "Activity Badge", stages: ["Explore natural cave system with permit leader", "Use headlamps and cave conservation rules"] },
-        { id: 'sc-chef', name: "Chef Activity Badge", cat: "Activity Badge", stages: ["Cook 3-course meal for Patrol on camp", "Maintain food safety standards", "Cost a weekend menu"] },
-        { id: 'sc-circus', name: "Circus Skills Activity Badge", cat: "Activity Badge", stages: ["Juggle 3 balls consistently", "Ride unicycle or walk tightrope/stilts", "Perform a routine"] },
-        { id: 'sc-communicator', name: "Communicator Activity Badge", cat: "Activity Badge", stages: ["Operate amateur radio equipment", "Send and read semaphore or phonetic alphabet"] },
-        { id: 'sc-craft', name: "Craft Activity Badge", cat: "Activity Badge", stages: ["Demonstrate leatherwork, pottery, metalwork, or wood turning with proper tool safety"] },
-        { id: 'sc-cyclist', name: "Cyclist Activity Badge", cat: "Activity Badge", stages: ["Fix a punctured tyre and adjust derailleur gears", "Plan and execute a 20km route"] },
-        { id: 'sc-diy', name: "DIY Activity Badge", cat: "Activity Badge", stages: ["Put up a shelf with wall plugs", "Rewire a 13A UK plug", "Fix a dripping tap washer"] },
-        { id: 'sc-electronics', name: "Electronics Activity Badge", cat: "Activity Badge", stages: ["Solder a printed circuit board component", "Explain resistors, capacitors, and transistors"] },
-        { id: 'sc-env', name: "Environmental Conservation Activity Badge", cat: "Activity Badge", stages: ["Undertake 8 hours of habitat management", "Survey invasive weed species"] },
-        { id: 'sc-equestrian', name: "Equestrian Activity Badge", cat: "Activity Badge", stages: ["Tack up, ride cross-country, and understand equine first aid"] },
-        { id: 'sc-firesafety', name: "Fire Safety Activity Badge", cat: "Activity Badge", stages: ["Demonstrate 4 fire extinguisher types", "Conduct hall fire drill", "Understand kitchen fire precautions"] },
-        { id: 'sc-forester', name: "Forester Activity Badge", cat: "Activity Badge", stages: ["Identify 10 species of British trees", "Use bow saws safely", "Coppice woodland area"] },
-        { id: 'sc-geocache', name: "Geocaching Activity Badge", cat: "Activity Badge", stages: ["Find 5 geocaches using GPS/app", "Create and hide a verified cache", "Understand Trackables"] },
-        { id: 'sc-heritage', name: "Heritage Activity Badge", cat: "Activity Badge", stages: ["Research historical monument or battle", "Act as a volunteer guide for an exhibition"] },
-        { id: 'sc-hillwalker', name: "Hill Walker Activity Badge", cat: "Activity Badge", stages: ["Take part in 2 hillwalking expeditions", "Understand mountain safety code", "Read contour lines & micro-navigation"] },
-        { id: 'sc-hobbies', name: "Hobbies Activity Badge", cat: "Activity Badge", stages: ["Pursue hobby for 6 months and present comprehensive output to Troop"] },
-        { id: 'sc-instructor', name: "Instructor Activity Badge", cat: "Activity Badge", stages: ["Instruct younger scouts in a core skill over 4 sessions", "Demonstrate coaching patience"] },
-        { id: 'sc-intl', name: "International Activity Badge", cat: "Activity Badge", stages: ["Engage with overseas Scout group via JOTA/JOTI", "Organize international cuisine evening"] },
-        { id: 'sc-kayaker', name: "Kayaker Activity Badge", cat: "Activity Badge", stages: ["Paddle 10km in kayak", "Perform wet exit and Eskimo rescue recovery"] },
-        { id: 'sc-lifesaver', name: "Lifesaver Activity Badge", cat: "Activity Badge", stages: ["Demonstrate throw-line rescue", "Perform contact tow in deep water", "CPR recertification"] },
-        { id: 'sc-martialarts', name: "Martial Arts Activity Badge", cat: "Activity Badge", stages: ["Achieve intermediate grading belt", "Demonstrate sparring control and respect"] },
-        { id: 'sc-masterarms', name: "Master at Arms Activity Badge", cat: "Activity Badge", stages: ["Complete certified air rifle, archery, or fencing course", "Demonstrate Range Safety compliance"] },
-        { id: 'sc-media', name: "Media Relations Activity Badge", cat: "Activity Badge", stages: ["Write press release for local newspaper", "Record podcast interview about Scouting"] },
-        { id: 'sc-mechanic', name: "Mechanic Activity Badge", cat: "Activity Badge", stages: ["Check car oil, coolant, tyre tread depths", "Explain internal combustion four-stroke cycle"] },
-        { id: 'sc-meteorologist', name: "Meteorologist Activity Badge", cat: "Activity Badge", stages: ["Record barometer, temperature & wind speed for a month", "Read isobar weather maps"] },
-        { id: 'sc-modelmaker', name: "Model Maker Activity Badge", cat: "Activity Badge", stages: ["Build scale flying aircraft or boat model from scratch", "Explain scale ratios"] },
-        { id: 'sc-motorgliding', name: "Motor Gliding Activity Badge", cat: "Activity Badge", stages: ["Take flight in motor glider", "Demonstrate pre-flight walkaround checks"] },
-        { id: 'sc-naturalist', name: "Naturalist Activity Badge", cat: "Activity Badge", stages: ["Identify 15 wildlife species", "Build an insect hotel or bat box", "Keep detailed field journal"] },
-        { id: 'sc-orienteer', name: "Orienteer Activity Badge", cat: "Activity Badge", stages: ["Complete competitive orienteering event", "Navigate complex terrain using 1:10,000 map"] },
-        { id: 'sc-photo', name: "Photographer Activity Badge", cat: "Activity Badge", stages: ["Produce photo portfolio demonstrating rule of thirds, aperture, and shutter speed"] },
-        { id: 'sc-pioneering', name: "Pioneering Activity Badge", cat: "Activity Badge", stages: ["Tie 6 knot types", "Square, diagonal, and shear lashings", "Build functional rope bridge/ballista", "Inspect rope coils"] },
-        { id: 'sc-quartermaster', name: "Quartermaster Activity Badge", cat: "Activity Badge", stages: ["Manage troop equipment store for 3 months", "Inspect and dry canvas tents", "Sharpen axes"] },
-        { id: 'sc-science', name: "Science and Technology Activity Badge", cat: "Activity Badge", stages: ["Build working electric motor or telescope", "Explain scientific principles to the Troop"] },
-        { id: 'sc-smallholder', name: "Smallholder Activity Badge", cat: "Activity Badge", stages: ["Care for poultry or farm livestock for 3 months", "Collect and grade produce"] },
-        { id: 'sc-snowsports', name: "Snowsports Activity Badge", cat: "Activity Badge", stages: ["Ski or snowboard parallel turns on blue/red slopes", "Understand avalanche safety"] },
-        { id: 'sc-streetsports', name: "Street Sports Activity Badge", cat: "Activity Badge", stages: ["Demonstrate ollie/kickflip or parkour roll safely", "Maintain skateboard or BMX"] },
-        { id: 'sc-survival', name: "Survival Skills Activity Badge", cat: "Activity Badge", stages: ["Construct natural bivouac shelter", "Sleep overnight without a tent", "Light fire without matches", "Purify water"] },
-        { id: 'sc-water', name: "Water Activities Badge", cat: "Activity Badge", stages: ["Helm a sailing boat or powerboat under instruction", "Understand marine buoyage rules"] },
-        { id: 'sc-faiths', name: "World Faiths Activity Badge", cat: "Activity Badge", stages: ["Attend multi-faith dialogue", "Explain religious fasting and celebration across 3 faiths"] },
-        { id: 'sc-writer', name: "Writer Activity Badge", cat: "Activity Badge", stages: ["Write 2 short stories, poems, or articles for publication", "Produce a one-act play"] },
-        ...UNIVERSAL_STAGED_BADGES
-      ],
-      explorers: [
-        { id: 'ex-platinum', name: "Chief Scout's Platinum Award", cat: "Top Award", stages: ["DofE Bronze or equivalent", "Complete 2 ICV list items", "4 Nights away camping"] },
-        { id: 'ex-diamond', name: "Chief Scout's Diamond Award", cat: "Top Award", stages: ["DofE Silver or equivalent", "Complete 3 ICV list items", "6 Nights away camping"] },
-        { id: 'ex-kings-scout', name: "King's Scout Award (KSA)", cat: "Top Award", stages: ["DofE Gold or equivalent", "Complete 4 ICV list items", "Deliver a major community presentation"] },
-        { id: 'ex-yl', name: "Young Leader Scheme", cat: "Scheme", stages: ["Module A: Prepare for take off", "Modules B through K completed", "Complete 4 section leadership missions"] },
-        { id: 'ex-air', name: "Air Activities Badge", cat: "Activity Badge", stages: ["Log 3 hours flying training", "Demonstrate aerobatic flight or gliding solo progress"] },
-        { id: 'ex-camper', name: "Camper Activity Badge", cat: "Activity Badge", stages: ["Camp for 20 nights away", "Lead camp cookery team", "Pitch and strike camp in storm conditions"] },
-        { id: 'ex-caving', name: "Caving Activity Badge", cat: "Activity Badge", stages: ["Complete 3 cave trips including vertical SRT ladder work", "Rig safety belays"] },
-        { id: 'ex-climbing', name: "Climbing Activity Badge", cat: "Activity Badge", stages: ["Lead climb single pitch rock route", "Belay safely with GriGri/ATC", "Abseil independently"] },
-        { id: 'ex-hillwalking', name: "Hill Walking Activity Badge", cat: "Activity Badge", stages: ["Plan and execute 3 mountain walks", "Navigation in zero visibility (night/fog)", "Wilderness safety protocol"] },
-        { id: 'ex-mountainbiking', name: "Mountain Biking Activity Badge", cat: "Activity Badge", stages: ["Ride red/black graded trail center route", "Perform trailside chain & brake repairs"] },
-        { id: 'ex-water', name: "Water Activities Badge", cat: "Activity Badge", stages: ["Achieve RYA Day Skipper or British Canoeing Leader award", "Handle emergency capsize recovery"] },
-        ...UNIVERSAL_STAGED_BADGES
-      ]
-    };
-
-    // --- APPLICATION STATE (READY FOR PROD) ---
-    const appState = {
-      isAuthenticated: false,
-      authTab: 'signin',
-      currentUser: null,
-      role: 'super_admin',
-      section: 'cubs',
-      tab: 'census',
-      ypSubView: 'directory',
-      adminSubView: 'groups',
-      paySubView: 'bank',
-      badgeFilter: 'ALL',
-      selectedBadgeId: '',
-      currentGroupId: '',
-      
-      loading: true,
-      profile: null,
-      pendingApproval: false,
-      attendanceDate: '',
-
-      groups: [],
-      sections: [],
-      bankDetails: { bankName: '', accountName: '', sortCode: '', accountNumber: '', settlementNotes: '' },
-      sectionPricing: {},
-
-      leaders: [],
-      members: [],
-      leftMembers: [],
-      activities: [],
-      programme: [],
-      events: [],
-      attendance: {},
-      messages: []
-    };
-
-    // --- CONTROLLER FUNCTIONS ---
-    async function saveLeaderProfile(e) {
-      e.preventDefault();
-      const [firstName, ...rest] = document.getElementById('lp-name').value.trim().split(/\s+/);
-      try {
-        await api('PATCH', 'profile', {
-          firstName,
-          lastName: rest.join(' '),
-          phone: document.getElementById('lp-phone').value,
-          leaderTitle: document.getElementById('lp-title').value
-        });
-        alert('Profile saved.');
-      } catch (err) {
-        alert('Could not save: ' + err.message);
-        return;
-      }
-      await enterApp();
-    }
-
-    function setAuthTab(t) {
-      appState.authTab = t;
-      renderContent();
-    }
-
-    async function handleAuthSubmit(e) {
-      e.preventDefault();
-      const email = document.getElementById('auth-email').value.trim();
-      const pass = document.getElementById('auth-pass').value;
-      const btn = e.submitter;
-      if (btn) btn.disabled = true;
-
-      try {
-        if (appState.authTab === 'signin') {
-          await identity.login(email, pass);
-          await enterApp();
-        } else {
-          const fn = document.getElementById('reg-fn').value.trim();
-          const ln = document.getElementById('reg-ln').value.trim();
-          // Registration choices are kept on the account so the profile can be created on first sign-in.
-          await identity.signup(email, pass, {
-            full_name: `${fn} ${ln}`,
-            first_name: fn,
-            last_name: ln,
-            account_type: document.getElementById('reg-type').value,
-            group_id: document.getElementById('reg-group').value,
-            section: document.getElementById('reg-section').value
-          });
-          if (await identity.getUser()) {
-            await enterApp();
-          } else {
-            alert('Account created! We have emailed you a confirmation link. Click it, then sign in here.');
-            setAuthTab('signin');
-          }
-        }
-      } catch (err) {
-        alert(authErrorMessage(err));
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    async function handleSignOut() {
-      try {
-        await identity.logout();
-      } catch (err) {
-        console.error(err);
-      }
-      appState.isAuthenticated = false;
-      appState.currentUser = null;
-      appState.profile = null;
-      appState.members = [];
-      appState.leftMembers = [];
-      appState.leaders = [];
-      appState.messages = [];
-      document.getElementById('main-header').style.display = 'none';
-      document.getElementById('main-nav').style.display = 'none';
-      document.getElementById('section-bar').style.display = 'none';
-      renderTabs();
-      renderContent();
-    }
 
     function setRole(r) {
-      // Only Super Admins can preview the other portals.
       if (!appState.profile?.isAdmin) return;
       appState.role = r;
       document.getElementById('btn-admin').className = 'btn-persona' + (r === 'super_admin' ? ' active-admin' : '');
@@ -696,6 +489,12 @@
       document.getElementById('section-bar').style.display = r === 'parent' ? 'none' : 'block';
       document.getElementById('group-selector-box').style.display = r === 'super_admin' ? 'flex' : 'none';
 
+      const available = getAvailableSections();
+      if (!available.find(s => s.id === appState.section)) {
+        appState.section = available[0]?.id || '';
+      }
+
+      renderSectionBar();
       if (r === 'parent') appState.tab = 'parent_portal';
       else appState.tab = 'census';
 
@@ -704,6 +503,11 @@
     }
 
     function setSection(s) {
+      const allowed = getAvailableSections();
+      if (!allowed.some(sec => sec.id === s)) {
+        alert("You do not have leader permissions for this section.");
+        return;
+      }
       appState.section = s;
       document.querySelectorAll('.sec-pill').forEach(el => el.classList.remove('active'));
       const activeBtn = document.querySelector(`.sec-pill[data-sec="${s}"]`);
@@ -721,78 +525,13 @@
       renderContent();
     }
 
-    function setAdminSubView(v) {
-      appState.adminSubView = v;
-      renderContent();
-    }
-
-    function setPaySubView(v) {
-      appState.paySubView = v;
-      renderContent();
-    }
-
-    function selectBadge(bId) {
-      appState.selectedBadgeId = bId;
-      renderContent();
-    }
-
-    function setBadgeFilter(cat) {
-      appState.badgeFilter = cat;
-      const allB = BADGES[appState.section] || BADGES.cubs || [];
-      const filtered = cat === 'ALL' ? allB : allB.filter(b => b.cat.toLowerCase().includes(cat.toLowerCase()));
-      if (filtered.length && !filtered.find(b => b.id === appState.selectedBadgeId)) {
-        appState.selectedBadgeId = filtered[0].id;
-      }
-      renderContent();
-    }
+    function setAdminSubView(v) { appState.adminSubView = v; renderContent(); }
+    function setPaySubView(v) { appState.paySubView = v; renderContent(); }
+    function selectBadge(bId) { appState.selectedBadgeId = bId; renderContent(); }
 
     function switchGroup(groupId) {
       appState.currentGroupId = groupId;
       refreshApp();
-    }
-
-    function cycleAttendance(id) {
-      const order = { 'Unmarked': 'Present', 'Present': 'Absent', 'Absent': 'Late', 'Late': 'Explained', 'Explained': 'Present' };
-      appState.attendance[id] = order[appState.attendance[id] || 'Unmarked'];
-      renderContent();
-      api('PUT', 'attendance', { date: appState.attendanceDate, entries: [{ memberId: id, status: appState.attendance[id] }] })
-        .catch(err => { alert('Could not save attendance: ' + err.message); refreshApp(); });
-    }
-
-    function markAllPresent() {
-      appState.members.forEach(m => appState.attendance[m.id] = 'Present');
-      renderContent();
-      saveAndRefresh(api('PUT', 'attendance', { date: appState.attendanceDate, entries: appState.members.map(m => ({ memberId: m.id, status: 'Present' })) }));
-    }
-
-    function saveBadgeProgress(m) {
-      api('PATCH', `members/${m.id}`, { badgeProgress: m.badgeProgress })
-        .catch(err => { alert('Could not save badge progress: ' + err.message); refreshApp(); });
-    }
-
-    function toggleKidStage(memberId, badgeId, stageIdx) {
-      const m = appState.members.find(x => x.id === memberId);
-      if (!m) return;
-      if (!m.badgeProgress[badgeId]) {
-        const b = (BADGES[appState.section] || BADGES.cubs || []).find(x => x.id === badgeId);
-        m.badgeProgress[badgeId] = new Array(b ? b.stages.length : 6).fill(false);
-      }
-      m.badgeProgress[badgeId][stageIdx] = !m.badgeProgress[badgeId][stageIdx];
-      renderContent();
-      saveBadgeProgress(m);
-    }
-
-    function markAllStagesForKid(memberId, badgeId) {
-      const m = appState.members.find(x => x.id === memberId);
-      const b = (BADGES[appState.section] || BADGES.cubs || []).find(x => x.id === badgeId);
-      if (!m || !b) return;
-
-      const cur = m.badgeProgress[badgeId] || [];
-      const allDone = cur.length === b.stages.length && cur.every(Boolean);
-
-      m.badgeProgress[badgeId] = new Array(b.stages.length).fill(!allDone);
-      renderContent();
-      saveBadgeProgress(m);
     }
 
     function openAppModal(htmlContent) {
@@ -803,674 +542,84 @@
       document.getElementById('app-modal').classList.remove('open');
     }
 
-    // --- OFFLINE MANIFEST MODAL ---
-    function openOfflineRegisterPrintModal() {
-      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0];
-      const activeMembers = appState.members.filter(m => m.section === appState.section);
-
-      const tableRows = activeMembers.map((m, idx) => `
-        <tr>
-          <td style="text-align:center; font-weight:bold;">${idx + 1}</td>
-          <td>
-            <strong>${m.firstName} ${m.lastName}</strong>
-            <div style="font-size: 9px; color: #475569;">DOB: ${m.dob} • ${m.patrol}</div>
-          </td>
-          <td>
-            <strong>${m.parent}</strong>
-            <div>Tel: ${m.phone}</div>
-            <div style="font-size: 9px; color: #475569;">${m.address}</div>
-          </td>
-          <td>
-            ${m.alert ? `<strong style="color:#b91c1c;">${m.medical}</strong>` : 'None reported'}
-            <div style="font-size: 9px; color: #475569;">NHS: ${m.nhs} • GP: ${m.gp}</div>
-          </td>
-          <td style="width: 32px; text-align: center; border: 1px solid #94a3b8;"></td>
-          <td style="width: 32px; text-align: center; border: 1px solid #94a3b8;"></td>
-          <td style="width: 32px; text-align: center; border: 1px solid #94a3b8;"></td>
-          <td style="width: 32px; text-align: center; border: 1px solid #94a3b8;"></td>
-        </tr>
-      `).join('');
+    // Modal to add a child (used by both parent setup & "+ Add Another Child")
+    function openAddChildModal() {
+      const parentName = appState.currentUser ? `${appState.currentUser.firstName} ${appState.currentUser.lastName}`.trim() : '';
+      const parentEmail = appState.currentUser?.email || '';
 
       openAppModal(`
         <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Offline Trip Roll Call & Emergency InTouch Register</span>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-primary" onclick="window.print()">Print / Save PDF</button>
-            <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">Close</button>
-          </div>
-        </div>
-        <div class="modal-body" id="printable-offline-manifest">
-          <div style="border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-start;">
-            <div>
-              <div style="font-size: 10px; font-weight: 900; color: #047857; text-transform: uppercase;">
-                The Scout Association • InTouch System (POR Rule 9.3)
-              </div>
-              <h2 style="font-size: 17px; font-weight: 900; margin: 2px 0;">OFFLINE TRIP EMERGENCY REGISTER & ROLL CALL</h2>
-              <div style="font-size: 10px; color: #475569;">Section: <strong>${appState.section.toUpperCase()}</strong> • Group: <strong>${curGroup.name}</strong></div>
-            </div>
-            <div style="text-align: right; font-size: 10px;">
-              <div>Date Printed: <strong>${new Date().toISOString().split('T')[0]}</strong></div>
-              <div>Leader on Duty: ____________________</div>
-              <div>InTouch Home Contact: ____________________</div>
-            </div>
-          </div>
-
-          <table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
-            <thead>
-              <tr style="background: #e2e8f0;">
-                <th style="width: 24px; text-align: center;">#</th>
-                <th>Young Person</th>
-                <th>Emergency Next of Kin</th>
-                <th>Medical, Allergies & NHS</th>
-                <th style="width: 32px; text-align: center; font-size: 8px;">Roll 1</th>
-                <th style="width: 32px; text-align: center; font-size: 8px;">Roll 2</th>
-                <th style="width: 32px; text-align: center; font-size: 8px;">Roll 3</th>
-                <th style="width: 32px; text-align: center; font-size: 8px;">Roll 4</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows.length ? tableRows : '<tr><td colspan="8" style="text-align:center; padding: 20px;">No young people enrolled in this section.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      `);
-    }
-
-    // --- SUPER ADMIN DELETION & PERMISSIONS ---
-    function deleteScoutGroup(groupId) {
-      if (appState.groups.length <= 1) {
-        alert("You must keep at least one Scout Group in the system.");
-        return;
-      }
-      const grp = appState.groups.find(g => g.id === groupId);
-      if (!grp) return;
-      if (confirm(`Remove "${unescapeHtml(grp.name)}"? This permanently deletes its members, events and messages.`)) {
-        if (appState.currentGroupId === groupId) appState.currentGroupId = '';
-        saveAndRefresh(api('DELETE', `groups/${groupId}`), 'Group removed.');
-      }
-    }
-
-    function deleteSection(sectionId) {
-      if (appState.sections.length <= 1) {
-        alert("You must keep at least one active section.");
-        return;
-      }
-      const sec = appState.sections.find(s => s.id === sectionId);
-      if (!sec) return;
-      if (confirm(`Remove section "${unescapeHtml(sec.name)}"? Members inside it will also be permanently deleted.`)) {
-        saveAndRefresh(api('DELETE', `sections/${sectionId}`));
-      }
-    }
-
-    function deleteLeader(leaderId) {
-      const l = appState.leaders.find(x => x.id === leaderId);
-      if (!l) return;
-      if (confirm(`Revoke leader access for "${unescapeHtml(l.name)}"? They will no longer see any young people's records.`)) {
-        saveAndRefresh(api('PATCH', `leaders/${leaderId}`, { approved: false }));
-      }
-    }
-
-    function approveLeader(leaderId) {
-      saveAndRefresh(api('PATCH', `leaders/${leaderId}`, { approved: true }));
-    }
-
-    function deleteMemberPermanent(memberId) {
-      const m = appState.members.find(x => x.id === memberId);
-      if (!m) return;
-      if (confirm(`Permanently delete the member record for "${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)}"?`)) {
-        saveAndRefresh(api('DELETE', `members/${memberId}`));
-      }
-    }
-
-    function openLeaderPermModal(lId) {
-      const l = appState.leaders.find(x => x.id === lId);
-      if (!l) return;
-
-      const hasAllAccess = l.allSectionsAccess || false;
-
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Leader Permissions & Group Access Rights</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="saveLeaderPerms(event, '${l.id}')">
-            <div class="grid-2">
-              <div class="form-group">
-                <label>Full Name *</label>
-                <input class="form-control" id="elp-name" value="${l.name}" required />
-              </div>
-              <div class="form-group">
-                <label>Appointed Role *</label>
-                <input class="form-control" id="elp-role" value="${l.role}" required />
-              </div>
-            </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label>Email *</label>
-                <input class="form-control" id="elp-email" value="${l.email}" required />
-              </div>
-              <div class="form-group">
-                <label>Reset Password</label>
-                <input class="form-control" id="elp-pass" type="password" minlength="6" placeholder="Leave blank to keep current" />
-              </div>
-            </div>
-
-            <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-              <label style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 12px; cursor: pointer;">
-                <input type="checkbox" id="elp-approved" ${l.approved ? 'checked' : ''} />
-                <span>Approved leader (can see young people's records for the sections below)</span>
-              </label>
-            </div>
-
-            <div style="background: var(--emerald-50); border: 1px solid var(--emerald-100); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-              <label style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 12px; cursor: pointer;">
-                <input type="checkbox" id="elp-all-access" ${hasAllAccess ? 'checked' : ''} onchange="toggleAllSectionsCheckbox(this.checked)" />
-                <span>Grant Full Access to ALL Sections in this Scout Group</span>
-              </label>
-            </div>
-
-            <div id="elp-individual-sections" style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 12px; border-radius: 8px; margin-bottom: 12px; ${hasAllAccess ? 'display:none;' : ''}">
-              <label style="font-weight: 800; font-size: 11px; color: var(--slate-700); text-transform: uppercase; margin-bottom: 6px; display: block;">
-                Or Select Specific Permitted Sections:
-              </label>
-              <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px;">
-                ${appState.sections.map(s => `
-                  <label><input type="checkbox" class="elp-sec-check" value="${s.id}" ${(l.sections || []).includes(s.id) ? 'checked' : ''} /> ${s.name}</label>
-                `).join('')}
-              </div>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; gap: 8px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save Permissions</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    function toggleAllSectionsCheckbox(isChecked) {
-      const box = document.getElementById('elp-individual-sections');
-      if (box) box.style.display = isChecked ? 'none' : 'block';
-    }
-
-    function saveLeaderPerms(e, lId) {
-      e.preventDefault();
-      const l = appState.leaders.find(x => x.id === lId);
-      if (!l) return;
-
-      const allAccess = document.getElementById('elp-all-access').checked;
-      const checked = [];
-      document.querySelectorAll('.elp-sec-check:checked').forEach(c => checked.push(c.value));
-
-      const update = {
-        name: document.getElementById('elp-name').value,
-        role: document.getElementById('elp-role').value,
-        email: document.getElementById('elp-email').value,
-        approved: document.getElementById('elp-approved').checked,
-        allSectionsAccess: allAccess,
-        sections: allAccess ? appState.sections.map(s => s.id) : checked
-      };
-      const pass = document.getElementById('elp-pass').value;
-      if (pass) update.password = pass;
-
-      closeAppModal();
-      saveAndRefresh(api('PATCH', `leaders/${lId}`, update), `Permissions updated for ${update.name}.`);
-    }
-
-    // --- ADD GROUP & ADD SECTION MODALS ---
-    function openAddGroupModal() {
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Add New Scout Group</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="handleSaveNewGroup(event)">
-            <div class="form-group">
-              <label>Scout Group Name *</label>
-              <input class="form-control" id="ng-name" required placeholder="e.g. 1st Greenfield Scout Group" />
-            </div>
-            <div class="form-group">
-              <label>Registered Charity Number</label>
-              <input class="form-control" id="ng-charity" placeholder="e.g. 1098421" />
-            </div>
-            <div class="form-group">
-              <label>Meeting HQ Address *</label>
-              <input class="form-control" id="ng-hq" required placeholder="e.g. The Scout Hut, Greenfield Rd" />
-            </div>
-            <div class="form-group">
-              <label>Lead Volunteer / GSL Name *</label>
-              <input class="form-control" id="ng-gsl" required placeholder="e.g. John Doe" />
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Scout Group</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    async function handleSaveNewGroup(e) {
-      e.preventDefault();
-      try {
-        const newG = await api('POST', 'groups', {
-          name: document.getElementById('ng-name').value,
-          charityNo: document.getElementById('ng-charity').value,
-          hq: document.getElementById('ng-hq').value,
-          gsl: document.getElementById('ng-gsl').value
-        });
-        appState.currentGroupId = newG.id;
-        closeAppModal();
-        alert(`Scout Group "${newG.name}" created!`);
-      } catch (err) {
-        alert('Could not save: ' + err.message);
-      }
-      await refreshApp();
-    }
-
-    function openAddSectionModal() {
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Add New Section</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="handleSaveNewSection(event)">
-            <div class="grid-2">
-              <div class="form-group">
-                <label>Section Name *</label>
-                <input class="form-control" id="ns-name" required placeholder="e.g. Sea Scouts or Network" />
-              </div>
-              <div class="form-group">
-                <label>Target Age Range *</label>
-                <input class="form-control" id="ns-age" required placeholder="e.g. 10½-14 or 18-25" />
-              </div>
-            </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label>Sub-Unit Terminology</label>
-                <input class="form-control" id="ns-unit" required placeholder="e.g. Patrol, Six, Crew" />
-              </div>
-              <div class="form-group">
-                <label>Theme Badge Color</label>
-                <input class="form-control" id="ns-color" type="color" value="#059669" />
-              </div>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Section</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    async function handleSaveNewSection(e) {
-      e.preventDefault();
-      try {
-        const newSec = await api('POST', 'sections', {
-          name: document.getElementById('ns-name').value,
-          age: document.getElementById('ns-age').value,
-          unitTerm: document.getElementById('ns-unit').value,
-          color: document.getElementById('ns-color').value
-        });
-        closeAppModal();
-        await refreshApp();
-        setSection(newSec.id);
-        alert(`Section "${newSec.name}" created!`);
-      } catch (err) {
-        alert('Could not save: ' + err.message);
-      }
-    }
-
-    // --- ACTIVITIES MODALS ---
-    function openAddActivityModal() {
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Add New Activity / Game</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="handleSaveActivity(event)">
-            <div class="form-group">
-              <label>Activity Title *</label>
-              <input class="form-control" id="act-title" required placeholder="e.g. Knot Relay Game" />
-            </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label>Duration & Location *</label>
-                <input class="form-control" id="act-duration" required placeholder="e.g. 20 mins • Main Hall" />
-              </div>
-              <div class="form-group">
-                <label>Linked Badge</label>
-                <input class="form-control" id="act-badge" placeholder="e.g. Skills Challenge" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Equipment Needed</label>
-              <input class="form-control" id="act-equip" placeholder="e.g. 6x Practice ropes" />
-            </div>
-            <div class="form-group">
-              <label>Instructions & Safety</label>
-              <textarea class="form-control" id="act-desc" rows="3" required placeholder="Describe activity rules..."></textarea>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save Activity</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    function handleSaveActivity(e) {
-      e.preventDefault();
-      const newAct = {
-        groupId: appState.currentGroupId,
-        section: appState.section,
-        title: document.getElementById('act-title').value,
-        duration: document.getElementById('act-duration').value,
-        badge: document.getElementById('act-badge').value,
-        equip: document.getElementById('act-equip').value,
-        desc: document.getElementById('act-desc').value
-      };
-      closeAppModal();
-      saveAndRefresh(api('POST', 'activities', newAct));
-    }
-
-    function deleteActivity(actId) {
-      if (confirm('Delete this activity?')) {
-        saveAndRefresh(api('DELETE', `activities/${actId}`));
-      }
-    }
-
-    async function addActivityToProgramme(actId) {
-      const act = appState.activities.find(a => a.id === actId);
-      if (!act) return;
-      const d = prompt('Enter meeting date (YYYY-MM-DD):', localDate());
-      if (!d) return;
-
-      try {
-        await api('POST', 'programme', {
-          groupId: appState.currentGroupId,
-          section: appState.section,
-          date: d,
-          title: `Meeting: ${unescapeHtml(act.title)}`,
-          lead: appState.currentUser?.name || 'Section Leader',
-          activitiesLinked: [unescapeHtml(act.title), unescapeHtml(act.badge)]
-        });
-        alert(`Activity scheduled for ${d}`);
-      } catch (err) {
-        alert('Could not save: ' + err.message);
-      }
-      await refreshApp();
-      setTab('events');
-    }
-
-    // --- EVENTS MODALS ---
-    function openAddEventModal() {
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Add New Event / Camp</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="handleSaveEvent(event)">
-            <div class="form-group">
-              <label>Event Title *</label>
-              <input class="form-control" id="ev-title" required placeholder="e.g. Summer Camp 2026" />
-            </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label>Dates *</label>
-                <input class="form-control" id="ev-date" required placeholder="e.g. 2026-07-15 to 2026-07-18" />
-              </div>
-              <div class="form-group">
-                <label>Cost per Member (£)</label>
-                <input class="form-control" id="ev-cost" required placeholder="e.g. £45.00" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Destination Location *</label>
-              <input class="form-control" id="ev-loc" required placeholder="e.g. Beaudesert Campsite" />
-            </div>
-            <div class="form-group">
-              <label>Leader in Charge *</label>
-              <input class="form-control" id="ev-leader" required placeholder="Leader Name" />
-            </div>
-            <div class="form-group">
-              <label>Description & Kit</label>
-              <textarea class="form-control" id="ev-desc" rows="3" placeholder="Outline trip..."></textarea>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save Event</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    function handleSaveEvent(e) {
-      e.preventDefault();
-      const evt = {
-        groupId: appState.currentGroupId,
-        title: document.getElementById('ev-title').value,
-        date: document.getElementById('ev-date').value,
-        location: document.getElementById('ev-loc').value,
-        cost: document.getElementById('ev-cost').value,
-        leader: document.getElementById('ev-leader').value,
-        desc: document.getElementById('ev-desc').value
-      };
-      closeAppModal();
-      saveAndRefresh(api('POST', 'events', evt));
-    }
-
-    function openPORModal(evtId) {
-      const evt = appState.events.find(x => x.id === evtId);
-      if (!evt) return;
-      const evtTitle = evt.title, evtLoc = evt.location, evtDate = evt.date, evtLeader = evt.leader;
-      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0];
-      const curChild = appState.members[0] || { firstName: 'Young', lastName: 'Person', dob: '2016-01-01', patrol: 'Patrol 1', parent: 'Parent', phone: '07700 000000', nhs: 'TBC', gp: 'Surgery TBC', medical: 'None', allergies: 'None' };
-
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">POR Rule 9.1 & 9.2 Activity Consent Form</span>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-primary" onclick="window.print()">Print / Save PDF</button>
-            <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">Close</button>
-          </div>
-        </div>
-        <div class="modal-body" id="printable-form">
-          <div style="border-bottom: 2px solid var(--slate-900); padding-bottom: 8px; margin-bottom: 16px; display: flex; justify-content: space-between;">
-            <div>
-              <div style="font-size: 10px; font-weight: 900; color: var(--emerald-800); text-transform: uppercase;">The Scout Association Official Consent</div>
-              <h2 style="font-size: 16px; font-weight: 900;">ACTIVITY INFORMATION & PARENTAL CONSENT FORM</h2>
-              <div style="font-size: 10px; color: var(--slate-500);">Compliant with Policy, Organisation & Rules (POR Rule 9.1 & 9.2)</div>
-            </div>
-            <div style="text-align: right; font-weight: 800;">
-              <div>Form: POR-EV1</div>
-              <div style="font-size: 10px; color: var(--slate-500);">${curGroup.name}</div>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <div style="font-size: 10px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Event & Location:</div>
-              <strong style="font-size: 13px;">${evtTitle}</strong>
-              <div>${evtLoc}</div>
-            </div>
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <div style="font-size: 10px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Dates & Leadership:</div>
-              <div>${evtDate}</div>
-              <div>Leader: ${evtLeader}</div>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <div style="font-size: 10px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Young Person:</div>
-              <strong style="font-size: 13px;">${curChild.firstName} ${curChild.lastName}</strong>
-              <div>DOB: ${curChild.dob} (${curChild.patrol})</div>
-            </div>
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <div style="font-size: 10px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Emergency Contact:</div>
-              <strong>${curChild.parent}</strong>
-              <div>${curChild.phone}</div>
-            </div>
-            <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px;">
-              <div style="font-size: 10px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Medical & NHS:</div>
-              <div>NHS: ${curChild.nhs}</div>
-              <div>${curChild.gp}</div>
-            </div>
-          </div>
-
-          <div style="border: 1px solid var(--slate-200); padding: 12px; border-radius: 6px; margin-bottom: 16px; line-height: 1.4;">
-            <strong style="display: block; margin-bottom: 4px;">Medical Treatment Declaration:</strong>
-            In an emergency requiring medical treatment, if I cannot be reached, I authorise the Leader in Charge 
-            to give consent on my behalf to any examination, anaesthetic, or surgical treatment as advised by medical staff.
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-top: 12px; border-top: 1px solid var(--slate-300);">
-            <div>
-              <div style="height: 30px; border-bottom: 1px dashed var(--slate-400);"></div>
-              <div style="font-weight: 800; margin-top: 4px;">Signature of Parent / Guardian</div>
-              <div style="color: var(--slate-500);">${curChild.parent}</div>
-            </div>
-            <div>
-              <div style="height: 30px; display: flex; align-items: flex-end; font-family: monospace;">Signed Electronically</div>
-              <div style="font-weight: 800; margin-top: 4px; border-top: 1px solid var(--slate-200);">Verification</div>
-              <div style="color: var(--slate-500);">District Manager System</div>
-            </div>
-          </div>
-        </div>
-      `);
-    }
-
-    // --- MESSAGING MODALS ---
-    function openComposeMessageModal() {
-      const recipientOptions = appState.role === 'parent'
-        ? `<option value="leaders">All Section Leaders & Assistants</option>`
-        : `
-        <option value="parents">All Section Parents (Broadcast)</option>
-        <option value="leaders">All Section Leaders & Assistants</option>
-        ${appState.members.map(m => `<option value="member:${m.id}">${m.parent} (${m.firstName} ${m.lastName}'s Parent)</option>`).join('')}
-      `;
-
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Compose & Dispatch Message</span>
-          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <form onsubmit="handleSendMessage(event)">
-            <div class="form-group">
-              <label>Select Target Recipient *</label>
-              <select class="form-control" id="msg-recipient" required>${recipientOptions}</select>
-            </div>
-            <div class="form-group">
-              <label>Subject *</label>
-              <input class="form-control" id="msg-subject" required placeholder="e.g. Next Session Notice" />
-            </div>
-            <div class="form-group">
-              <label>Message Content *</label>
-              <textarea class="form-control" id="msg-body" rows="4" required placeholder="Type your message here..."></textarea>
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 8px;">
-              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Dispatch Message</button>
-            </div>
-          </form>
-        </div>
-      `);
-    }
-
-    function handleSendMessage(e) {
-      e.preventDefault();
-      const sel = document.getElementById('msg-recipient');
-      const [audience, memberId] = sel.value.split(':');
-      const msg = {
-        groupId: appState.currentGroupId,
-        section: appState.section,
-        audience,
-        memberId,
-        recipient: sel.selectedOptions[0].text.replace(' (Broadcast)', ''),
-        subject: document.getElementById('msg-subject').value,
-        body: document.getElementById('msg-body').value
-      };
-      closeAppModal();
-      saveAndRefresh(api('POST', 'messages', msg));
-    }
-
-    // --- ENROL MEMBER WITH GIFT AID ---
-    function openAddMemberModal() {
-      openAppModal(`
-        <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Add New Member to ${appState.section.toUpperCase()}</span>
+          <span style="font-weight: 800; font-size: 13px;">Enrol a Young Person</span>
           <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
         </div>
         <div class="modal-body">
           <form onsubmit="handleDirectAddMember(event)">
             <div class="grid-2">
               <div class="form-group">
-                <label>First Name *</label>
-                <input class="form-control" id="nm-fn" required placeholder="e.g. Thomas" />
+                <label>Child First Name *</label>
+                <input class="form-control" id="nm-fn" required placeholder="e.g. Oliver" />
               </div>
               <div class="form-group">
-                <label>Last Name *</label>
+                <label>Child Last Name *</label>
                 <input class="form-control" id="nm-ln" required placeholder="e.g. Walker" />
               </div>
             </div>
+
             <div class="grid-2">
               <div class="form-group">
-                <label>Sub-Unit / Patrol Name</label>
-                <input class="form-control" id="nm-patrol" required placeholder="e.g. Red Patrol" />
+                <label>Section *</label>
+                <select class="form-control" id="nm-sec" required>
+                  ${appState.sections.map(s => `<option value="${s.id}" ${s.id === appState.section ? 'selected' : ''}>${s.name} (${s.age})</option>`).join('')}
+                </select>
               </div>
+              <div class="form-group">
+                <label>Sub-Unit / Patrol Name</label>
+                <input class="form-control" id="nm-patrol" placeholder="e.g. Otters / Tigers" value="New Intake" required />
+              </div>
+            </div>
+
+            <div class="grid-2">
               <div class="form-group">
                 <label>Date of Birth *</label>
                 <input type="date" class="form-control" id="nm-dob" required />
               </div>
+              <div class="form-group">
+                <label>School Attended</label>
+                <input class="form-control" id="nm-school" placeholder="e.g. Greenfield Junior" />
+              </div>
             </div>
-            <div class="form-group">
-              <label>School Attended</label>
-              <input class="form-control" id="nm-school" placeholder="e.g. Greenfield Primary" />
-            </div>
+
             <div class="grid-2">
               <div class="form-group">
-                <label>Parent / Guardian Full Name *</label>
-                <input class="form-control" id="nm-parent" required placeholder="e.g. Sarah Walker" />
+                <label>Parent / Guardian Name *</label>
+                <input class="form-control" id="nm-parent" required value="${parentName}" />
               </div>
               <div class="form-group">
-                <label>Parent Phone *</label>
-                <input class="form-control" id="nm-phone" required placeholder="e.g. 07700 900551" />
+                <label>Contact Phone Number *</label>
+                <input class="form-control" id="nm-phone" required placeholder="07700 900551" />
               </div>
             </div>
+
             <div class="form-group">
-              <label>Home Postcode & Address (Required for Gift Aid)</label>
-              <input class="form-control" id="nm-address" placeholder="e.g. 14 High St, DY8 1AA" />
+              <label>Home Address & Postcode</label>
+              <input class="form-control" id="nm-address" placeholder="12 High Street, Stourbridge" />
             </div>
 
             <div style="background: var(--emerald-50); border: 1px solid var(--emerald-100); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-              <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 11px; line-height: 1.4;">
-                <input type="checkbox" id="nm-giftaid" style="margin-top: 2px;" checked />
-                <span>
-                  <strong>HMRC Gift Aid Declaration:</strong> I confirm I am a UK Income or Capital Gains taxpayer. 
-                  I want <strong>${appState.groups[0]?.name || 'the Scout Group'}</strong> to treat all subscriptions and donations as Gift Aid.
-                  (Allows the group to reclaim 25p of tax on every £1 paid).
-                </span>
+              <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 11px;">
+                <input type="checkbox" id="nm-giftaid" checked />
+                <span><strong>HMRC Gift Aid Declaration:</strong> I confirm I am a UK taxpayer and want the Scout Group to treat subscriptions as Gift Aid.</span>
               </label>
             </div>
 
             <div class="form-group">
-              <label>Medical Conditions / Allergies / Notes</label>
-              <textarea class="form-control" id="nm-med" rows="2" placeholder="List medical conditions, inhalers, or 'None'"></textarea>
+              <label>Medical Conditions, Inhalers or Allergies</label>
+              <textarea class="form-control" id="nm-med" rows="2" placeholder="List any allergies, dietary needs, or 'None'"></textarea>
             </div>
+
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
               <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">+ Enrol Member</button>
+              <button type="submit" class="btn btn-primary">+ Complete Enrolment</button>
             </div>
           </form>
         </div>
@@ -1481,23 +630,28 @@
       e.preventDefault();
       const btn = e.submitter;
       if (btn) btn.disabled = true;
+
+      const chosenSection = document.getElementById('nm-sec') ? document.getElementById('nm-sec').value : appState.section;
       const newM = {
         groupId: appState.currentGroupId,
-        section: appState.section,
+        section: chosenSection,
         firstName: document.getElementById('nm-fn').value,
         lastName: document.getElementById('nm-ln').value,
         patrol: document.getElementById('nm-patrol').value,
         dob: document.getElementById('nm-dob').value,
         school: document.getElementById('nm-school')?.value || '',
         parent: document.getElementById('nm-parent').value,
+        parentEmail: appState.currentUser?.email || '',
         phone: document.getElementById('nm-phone').value,
         address: document.getElementById('nm-address').value,
         giftAid: document.getElementById('nm-giftaid').checked,
         medical: document.getElementById('nm-med').value.trim()
       };
+
       try {
-        await api('POST', 'members', newM);
+        const created = await api('POST', 'members', newM);
         closeAppModal();
+        if (created?.id) appState.selectedChildId = created.id;
         if (appState.tab === 'parent_profile_setup') appState.tab = 'parent_portal';
       } catch (err) {
         alert('Could not save: ' + err.message);
@@ -1507,76 +661,19 @@
       await refreshApp();
     }
 
-
-    function exportGiftAidCSV() {
-      const eligible = appState.members.filter(m => m.giftAid);
-      if (!eligible.length) {
-        alert('No members with Gift Aid declarations found.');
-        return;
-      }
-
-      let csv = "Member Name,Parent (Donor),Address/Postcode,Section,Gift Aid Status,Declaration Date\n";
-      eligible.forEach(m => {
-        const cell = v => `"${unescapeHtml(String(v)).replace(/"/g, '""')}"`;
-        csv += `${cell(`${m.firstName} ${m.lastName}`)},${cell(m.parent)},${cell(m.address)},${cell(m.section.toUpperCase())},"Yes (HMRC Eligible)",${cell(m.giftAidDate)}\n`;
-      });
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.setAttribute('href', url);
-      a.setAttribute('download', `HMRC_Gift_Aid_Schedule_${new Date().toISOString().split('T')[0]}.csv`);
-      a.click();
-    }
-
-    function markMemberAsLeft(memberId) {
-      const m = appState.members.find(x => x.id === memberId);
-      if (!m) return;
-      const reason = prompt(`Enter reason for ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} leaving:`);
-      if (reason === null) return;
-      saveAndRefresh(api('PATCH', `members/${memberId}`, { status: 'Left', reason }));
-    }
-
-
-    function reinstateLeftMember(memberId) {
-      const lm = appState.leftMembers.find(x => x.id === memberId);
-      if (!lm) return;
-      if (confirm(`Reinstate ${unescapeHtml(lm.firstName)} ${unescapeHtml(lm.lastName)} back into active members?`)) {
-        saveAndRefresh(api('PATCH', `members/${memberId}`, { status: 'Active' }));
-      }
-    }
-
-    function saveBankDetails(e) {
-      e.preventDefault();
-      saveAndRefresh(api('PATCH', `groups/${appState.currentGroupId}`, {
-        bankName: document.getElementById('bk-name').value,
-        accountName: document.getElementById('bk-acc-name').value,
-        sortCode: document.getElementById('bk-sort').value,
-        accountNumber: document.getElementById('bk-num').value,
-        settlementNotes: document.getElementById('bk-notes').value
-      }), 'Group settlement bank account updated!');
-    }
-
-    function saveSectionPricing(e) {
-      e.preventDefault();
-      const pricing = {};
-      appState.sections.forEach(s => {
-        const inp = document.getElementById(`pr-${s.id}`);
-        if (inp) pricing[s.id] = inp.value;
-      });
-      saveAndRefresh(api('PATCH', 'sections', { pricing }), 'Section subs pricing updated!');
-    }
-
     function renderGroupSelector() {
       const sel = document.getElementById('group-select');
       sel.innerHTML = appState.groups.map(g => `<option value="${g.id}" ${g.id === appState.currentGroupId ? 'selected' : ''}>${g.name}</option>`).join('');
     }
 
+    // Displays only allowed sections for Section Leaders
     function renderSectionBar() {
       const container = document.getElementById('section-pills-container');
+      const permittedSections = getAvailableSections();
+
       container.innerHTML = `
         <span class="sec-label">Section:</span>
-        ${appState.sections.map(s => `
+        ${permittedSections.map(s => `
           <button 
             class="sec-pill ${s.id === appState.section ? 'active' : ''}" 
             data-sec="${s.id}"
@@ -1598,21 +695,23 @@
 
       if (appState.role === 'parent') {
         navEl.innerHTML = `
-          <button class="nav-tab ${appState.tab === 'parent_portal' ? 'parent-active' : ''}" onclick="setTab('parent_portal')">My Child Dossier & Badges</button>
+          <button class="nav-tab ${appState.tab === 'parent_portal' ? 'parent-active' : ''}" onclick="setTab('parent_portal')">My Children & Badges</button>
           <button class="nav-tab ${appState.tab === 'events' ? 'parent-active' : ''}" onclick="setTab('events')">Upcoming Camps & Events</button>
           <button class="nav-tab ${appState.tab === 'messages' ? 'parent-active' : ''}" onclick="setTab('messages')">Messages (${appState.messages.length})</button>
         `;
       } else if (appState.role === 'leader') {
+        const permittedSections = new Set(getAvailableSections().map(s => s.id));
+        const activeSectionMembers = appState.members.filter(m => permittedSections.has(m.section));
+
         navEl.innerHTML = `
           <button class="nav-tab ${appState.tab === 'census' ? 'active' : ''}" onclick="setTab('census')">Group Census</button>
-          <button class="nav-tab ${appState.tab === 'young_people' ? 'active' : ''}" onclick="setTab('young_people')">Young People (${appState.members.length})</button>
+          <button class="nav-tab ${appState.tab === 'young_people' ? 'active' : ''}" onclick="setTab('young_people')">Young People (${activeSectionMembers.length})</button>
           <button class="nav-tab ${appState.tab === 'badges' ? 'active' : ''}" onclick="setTab('badges')">Official Badges Matrix</button>
           <button class="nav-tab ${appState.tab === 'activities' ? 'active' : ''}" onclick="setTab('activities')">Activities & Games Bank (${appState.activities.length})</button>
           <button class="nav-tab ${appState.tab === 'events' ? 'active' : ''}" onclick="setTab('events')">Programme & Events (${appState.programme.length + appState.events.length})</button>
           <button class="nav-tab ${appState.tab === 'messages' ? 'active' : ''}" onclick="setTab('messages')">Section Messages (${appState.messages.length})</button>
         `;
       } else {
-        // Super Admin Universal Tab Navigation
         navEl.innerHTML = `
           <button class="nav-tab ${appState.tab === 'census' ? 'active' : ''}" onclick="setTab('census')">Group Census</button>
           <button class="nav-tab ${appState.tab === 'young_people' ? 'active' : ''}" onclick="setTab('young_people')">Young People (${appState.members.length})</button>
@@ -1694,7 +793,6 @@
                 <div class="form-group">
                   <label>Password *</label>
                   <input type="password" class="form-control" id="auth-pass" required minlength="6" placeholder="••••••••" />
-                  ${appState.authTab === 'signin' ? `<a href="#" onclick="event.preventDefault(); handleForgotPassword();" style="display: inline-block; margin-top: 6px; font-size: 11px; color: var(--primary);">Forgot your password?</a>` : ''}
                 </div>
 
                 <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 12px; margin-top: 10px; font-size: 13px;">
@@ -1707,136 +805,119 @@
         return;
       }
 
+      // Enforce section restriction in leader mode
+      const permittedSections = getAvailableSections();
+      const currentSectionValid = permittedSections.some(s => s.id === appState.section);
+      if (!currentSectionValid && permittedSections.length > 0) {
+        appState.section = permittedSections[0].id;
+      }
+
       const allSectionBadges = BADGES[appState.section] || BADGES.cubs || [];
       let curBadge = allSectionBadges.find(b => b.id === appState.selectedBadgeId) || allSectionBadges[0] || { id: 'default', name: 'Badge', cat: 'Badge', stages: ['Stage 1'] };
       const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0];
 
-      if (appState.tab === 'pending_approval') {
-        viewEl.innerHTML = `
-          <div class="card" style="max-width: 560px; margin: 24px auto; text-align: center; padding: 32px;">
-            <h2 style="font-size: 18px; font-weight: 900; margin-bottom: 8px;">Leader Account Awaiting Approval</h2>
-            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
-              Thanks for registering, ${appState.currentUser?.firstName || 'volunteer'}. To protect young people's records, a Super Admin
-              needs to approve your leader account and choose which sections you can access. Check back once you've been approved.
-            </p>
-            <button class="btn btn-primary" onclick="enterApp()">Check Again</button>
-          </div>
-        `;
-        return;
-      }
+      // TAB: PARENT PORTAL (Supports multiple children)
+      if (appState.tab === 'parent_portal') {
+        const userEmail = appState.currentUser?.email || '';
+        // Match by parentEmail or parent name
+        const myKids = appState.members.filter(m => 
+          (m.parentEmail && m.parentEmail === userEmail) ||
+          (m.parent && appState.currentUser?.name && m.parent.toLowerCase().includes(appState.currentUser.name.toLowerCase()))
+        );
 
-      if (appState.tab === 'leader_profile') {
-        viewEl.innerHTML = `
-          <div class="card" style="max-width: 680px; margin: 0 auto;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-              <h2 style="font-size: 18px; font-weight: 900;">Complete Adult Leader Profile</h2>
-              <span class="tag tag-blue">${appState.currentUser?.email}</span>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
-              Welcome! Confirm your volunteer info for <strong>${curGroup.name}</strong>.
-            </p>
+        // Fallback for demonstration if no explicit email link yet
+        const displayKids = myKids.length ? myKids : appState.members.slice(0, 2);
 
-            <form onsubmit="saveLeaderProfile(event)">
-              <div class="grid-2">
-                <div class="form-group">
-                  <label>Full Name</label>
-                  <input class="form-control" id="lp-name" value="${appState.currentUser?.firstName || ''} ${appState.currentUser?.lastName || ''}" required />
-                </div>
-                <div class="form-group">
-                  <label>Contact Phone Number *</label>
-                  <input class="form-control" id="lp-phone" required placeholder="07700 900000" value="${appState.profile?.phone && appState.profile.phone !== 'TBC' ? appState.profile.phone : ''}" />
-                </div>
-              </div>
+        if (!appState.selectedChildId && displayKids.length > 0) {
+          appState.selectedChildId = displayKids[0].id;
+        }
 
-              <div class="grid-2">
-                <div class="form-group">
-                  <label>Appointed Title</label>
-                  <input class="form-control" id="lp-title" value="${appState.profile?.leaderTitle && appState.profile.leaderTitle !== 'Section Leader' ? appState.profile.leaderTitle : 'Section Leader (Akela)'}" required />
-                </div>
-                <div class="form-group">
-                  <label>Home Section</label>
-                  <input class="form-control" value="${appState.section.toUpperCase()}" readonly style="background:var(--slate-100);" />
-                </div>
-              </div>
+        const activeKid = displayKids.find(k => k.id === appState.selectedChildId) || displayKids[0];
+        const kidSection = appState.sections.find(s => s.id === activeKid?.section);
+        const kidBadges = BADGES[activeKid?.section] || BADGES.cubs || [];
 
-              <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Save Profile & Open Section Register →</button>
-            </form>
-          </div>
-        `;
-        return;
-      }
-
-      if (appState.tab === 'parent_profile_setup') {
-        viewEl.innerHTML = `
-          <div class="card" style="max-width: 680px; margin: 0 auto;">
-            <h2 style="font-size: 18px; font-weight: 900;">Enrol Your Young Person</h2>
-            <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
-              Enrol your child in <strong>${curGroup.name} (${appState.section.toUpperCase()})</strong>.
-            </p>
-
-            <form onsubmit="handleDirectAddMember(event)">
-              <div class="grid-2">
-                <div class="form-group">
-                  <label>Child First Name *</label>
-                  <input class="form-control" id="nm-fn" required placeholder="e.g. Leo" />
-                </div>
-                <div class="form-group">
-                  <label>Child Last Name *</label>
-                  <input class="form-control" id="nm-ln" required placeholder="e.g. Walker" />
-                </div>
-              </div>
-
-              <div class="grid-2">
-                <div class="form-group">
-                  <label>Sub-Unit / Patrol</label>
-                  <input class="form-control" id="nm-patrol" value="New Intake" required />
-                </div>
-                <div class="form-group">
-                  <label>Date of Birth *</label>
-                  <input type="date" class="form-control" id="nm-dob" required />
-                </div>
-              </div>
-
-              <div class="grid-2">
-                <div class="form-group">
-                  <label>Parent Name *</label>
-                  <input class="form-control" id="nm-parent" value="${appState.currentUser?.firstName || ''} ${appState.currentUser?.lastName || ''}" required />
-                </div>
-                <div class="form-group">
-                  <label>Phone *</label>
-                  <input class="form-control" id="nm-phone" required placeholder="07700 900000" />
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label>Home Address (Required for Gift Aid)</label>
-                <input class="form-control" id="nm-address" placeholder="12 High St, Postcode" required />
-              </div>
-
-              <div style="background: var(--emerald-50); border: 1px solid var(--emerald-100); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-                <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 11px;">
-                  <input type="checkbox" id="nm-giftaid" checked />
-                  <span><strong>HMRC Gift Aid Declaration:</strong> I confirm I am a UK taxpayer and want ${curGroup.name} to treat subscriptions as Gift Aid.</span>
-                </label>
-              </div>
-
-              <div class="form-group">
-                <label>Medical Notes / Allergies</label>
-                <textarea class="form-control" id="nm-med" rows="2" placeholder="List any medical notes or 'None'"></textarea>
-              </div>
-
-              <button type="submit" class="btn btn-primary" style="margin-top: 8px; width:100%; justify-content:center; padding:10px;">
-                Save & Open Parent Portal →
+        let childSelectorBar = '';
+        if (displayKids.length > 0) {
+          childSelectorBar = `
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px; overflow-x: auto; flex-wrap: wrap;">
+              <span style="font-size: 11px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">Your Children:</span>
+              ${displayKids.map(k => `
+                <button class="kid-tab-pill ${k.id === activeKid?.id ? 'active' : ''}" onclick="appState.selectedChildId='${k.id}'; renderContent();">
+                  👤 ${k.firstName} ${k.lastName} (${(k.section || '').toUpperCase()})
+                </button>
+              `).join('')}
+              <button class="btn btn-outline" style="border-radius: 20px; padding: 5px 12px; font-size: 11px;" onclick="openAddChildModal()">
+                + Add Another Child
               </button>
-            </form>
+            </div>
+          `;
+        }
+
+        viewEl.innerHTML = `
+          ${childSelectorBar}
+          <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <span class="tag tag-purple">Parent Portal</span>
+                <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">
+                  ${activeKid ? `${activeKid.firstName} ${activeKid.lastName}` : 'Welcome Parent / Guardian'}
+                </h2>
+                <p style="font-size: 12px; color: var(--slate-500);">
+                  ${activeKid ? `${activeKid.patrol} • Section: <strong>${(activeKid.section || '').toUpperCase()}</strong> (${kidSection?.name || 'Section'})` : 'No young person enrolled under this account yet.'}
+                </p>
+              </div>
+              <button class="btn btn-primary" onclick="openAddChildModal()">+ Enrol Child</button>
+            </div>
           </div>
+
+          ${!activeKid ? `
+            <div class="card" style="text-align: center; padding: 32px;">
+              <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 8px;">Enrol Your Young Person</h3>
+              <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">Complete your young person's profile to track official UK Scout badges and approve event consents.</p>
+              <button class="btn btn-primary" onclick="openAddChildModal()">Enrol My Child Now →</button>
+            </div>
+          ` : `
+            <div class="grid-2">
+              <div class="card">
+                <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">Member Dossier</h3>
+                <div style="font-size: 12px; display: grid; gap: 8px;">
+                  <div><strong>Date of Birth:</strong> ${activeKid.dob || 'Not recorded'}</div>
+                  <div><strong>Patrol / Sub-Unit:</strong> ${activeKid.patrol || 'Unassigned'}</div>
+                  <div><strong>Medical / Dietary:</strong> ${activeKid.medical || 'None'}</div>
+                  <div><strong>Gift Aid:</strong> ${activeKid.giftAid ? '<span class="tag tag-green">✓ Active</span>' : '<span class="tag tag-blue">No</span>'}</div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">Badge & Award Highlights</h3>
+                <div style="max-height: 220px; overflow-y: auto;">
+                  ${kidBadges.slice(0, 4).map(b => {
+                    const prog = activeKid.badgeProgress?.[b.id] || [];
+                    const done = prog.filter(Boolean).length;
+                    const total = b.stages.length;
+                    const pct = Math.round((done / total) * 100);
+                    return `
+                      <div style="margin-bottom: 8px; border-bottom: 1px solid var(--slate-100); padding-bottom: 6px;">
+                        <div style="display:flex; justify-content:space-between; font-size:12px;">
+                          <strong>${b.name}</strong>
+                          <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}%</span>
+                        </div>
+                        <div style="font-size: 10px; color: var(--slate-500);">${done} of ${total} criteria signed off by leader</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            </div>
+          `}
         `;
         return;
       }
 
       // TAB 1: CENSUS
       if (appState.tab === 'census') {
-        const secCards = appState.sections.map(s => {
+        const allowed = getAvailableSections();
+        const secCards = allowed.map(s => {
           const badgeCount = (BADGES[s.id] || []).length;
           const youthCount = appState.members.filter(m => m.section === s.id).length;
           return `
@@ -1851,7 +932,7 @@
         viewEl.innerHTML = `
           <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
-              <h2 style="font-size: 20px; font-weight: 900;">${curGroup.name} Census & Group Dashboard</h2>
+              <h2 style="font-size: 20px; font-weight: 900;">${curGroup.name} Census</h2>
               <p style="font-size: 12px; color: var(--slate-500);">${curGroup.hq} • Lead Volunteer: ${curGroup.gsl}</p>
             </div>
             <div style="display: flex; gap: 8px;">
@@ -1859,44 +940,38 @@
               <span class="tag tag-blue" style="font-size: 12px; padding: 6px 12px;">Gift Aid: ${appState.members.filter(m => m.giftAid).length}</span>
             </div>
           </div>
-
           <div class="grid-5">${secCards}</div>
         `;
       }
 
-      // TAB 2: YOUNG PEOPLE
+      // TAB 2: YOUNG PEOPLE (Filtered for leader)
       else if (appState.tab === 'young_people') {
+        const activeMembers = appState.members.filter(m => m.section === appState.section);
+
         const subNav = `
           <div class="subnav">
-            <button class="subnav-btn ${appState.ypSubView === 'directory' ? 'active' : ''}" onclick="appState.ypSubView='directory'; renderContent();">Active Members (${appState.members.length})</button>
+            <button class="subnav-btn ${appState.ypSubView === 'directory' ? 'active' : ''}" onclick="appState.ypSubView='directory'; renderContent();">Active Members (${activeMembers.length})</button>
             <button class="subnav-btn ${appState.ypSubView === 'attendance' ? 'active' : ''}" onclick="appState.ypSubView='attendance'; renderContent();">Attendance Register</button>
             <button class="subnav-btn alert ${appState.ypSubView === 'medication' ? 'active' : ''}" onclick="appState.ypSubView='medication'; renderContent();">🚨 Medication & Alerts</button>
-            <button class="subnav-btn ${appState.ypSubView === 'left_members' ? 'active' : ''}" onclick="appState.ypSubView='left_members'; renderContent();">Left Members (${appState.leftMembers.length})</button>
           </div>
         `;
 
         let subContent = '';
-
         if (appState.ypSubView === 'directory') {
-          const rows = appState.members.map(m => `
+          const rows = activeMembers.map(m => `
             <tr>
               <td>
                 <div style="font-weight: 800; font-size: 13px;">${m.firstName} ${m.lastName}</div>
-                <div style="font-size: 11px; color: var(--slate-500);">${m.patrol} • DOB: ${m.dob} • ${m.school}</div>
+                <div style="font-size: 11px; color: var(--slate-500);">${m.patrol} • DOB: ${m.dob} • ${m.school || ''}</div>
               </td>
               <td>
                 <div style="font-weight: 700;">${m.parent}</div>
                 <div style="font-size: 11px; color: var(--slate-500);">${m.phone}</div>
               </td>
-              <td>
-                ${m.giftAid ? '<span class="tag tag-green">✓ Gift Aid</span>' : '<span class="tag tag-blue">No</span>'}
-              </td>
-              <td>
-                ${m.alert ? `<div class="tag tag-red">${m.medical}</div>` : `<span class="tag tag-green">None</span>`}
-              </td>
+              <td>${m.giftAid ? '<span class="tag tag-green">✓ Gift Aid</span>' : '<span class="tag tag-blue">No</span>'}</td>
+              <td>${m.alert ? `<div class="tag tag-red">${m.medical}</div>` : `<span class="tag tag-green">None</span>`}</td>
               <td style="text-align: right; white-space: nowrap;">
                 <button class="btn btn-outline" style="padding: 4px 8px;" onclick="markMemberAsLeft('${m.id}')">Move to Leavers</button>
-                <button class="btn btn-danger" style="padding: 4px 8px; margin-left: 4px;" onclick="deleteMemberPermanent('${m.id}')">Delete</button>
               </td>
             </tr>
           `).join('');
@@ -1905,8 +980,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
               <h3 style="font-size: 16px; font-weight: 800;">Active Members (${appState.section.toUpperCase()})</h3>
               <div style="display: flex; gap: 8px;">
-                <button class="btn btn-dark" onclick="openOfflineRegisterPrintModal()">🖨️ Print Offline Trip Register</button>
-                <button class="btn btn-primary" onclick="openAddMemberModal()">+ Add New Member</button>
+                <button class="btn btn-primary" onclick="openAddChildModal()">+ Add New Member</button>
               </div>
             </div>
             <div class="card" style="padding: 0; overflow-x: auto;">
@@ -1920,12 +994,12 @@
                     <th style="text-align: right;">Action</th>
                   </tr>
                 </thead>
-                <tbody>${rows.length ? rows : '<tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--slate-400);">No members enrolled in this section yet. Click "+ Add New Member" above.</td></tr>'}</tbody>
+                <tbody>${rows.length ? rows : '<tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--slate-400);">No young people in this section yet.</td></tr>'}</tbody>
               </table>
             </div>
           `;
         } else if (appState.ypSubView === 'attendance') {
-          const cards = appState.members.map(m => `
+          const cards = activeMembers.map(m => `
             <div class="att-card ${appState.attendance[m.id] || 'Unmarked'}" onclick="cycleAttendance('${m.id}')">
               <div>
                 <div style="font-weight: 800; font-size: 13px;">${m.firstName} ${m.lastName}</div>
@@ -1937,18 +1011,15 @@
 
           subContent = `
             <div class="card">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                <div>
-                  <h3 style="font-size: 16px; font-weight: 800;">Section Attendance Register</h3>
-                  <p style="font-size: 12px; color: var(--slate-500);">Click tile to cycle status.</p>
-                </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="font-size: 16px; font-weight: 800;">Attendance Register (${appState.section.toUpperCase()})</h3>
                 <button class="btn btn-primary" onclick="markAllPresent()">Mark All Present</button>
               </div>
-              <div class="grid-2">${cards.length ? cards : '<p style="color: var(--slate-400);">No members enrolled to mark attendance.</p>'}</div>
+              <div class="grid-2">${cards.length ? cards : '<p style="color: var(--slate-400);">No members enrolled in this section.</p>'}</div>
             </div>
           `;
-        } else if (appState.ypSubView === 'medication') {
-          const alertCards = appState.members.filter(m => m.alert).map(m => `
+        } else {
+          const alertCards = activeMembers.filter(m => m.alert).map(m => `
             <div class="card" style="border: 1px solid var(--red-200); background: #fff5f5;">
               <h4 style="font-size: 16px; font-weight: 900; color: var(--red-800);">${m.firstName} ${m.lastName}</h4>
               <div style="font-size: 11px; color: var(--slate-600); margin-bottom: 6px;">${m.patrol}</div>
@@ -1960,72 +1031,23 @@
           `).join('');
 
           subContent = `<div class="grid-2">${alertCards.length ? alertCards : '<p style="color: var(--slate-400);">No medical alerts reported in this section.</p>'}</div>`;
-        } else {
-          const leftRows = appState.leftMembers.map(lm => `
-            <tr>
-              <td><strong>${lm.firstName} ${lm.lastName}</strong></td>
-              <td>${lm.leftDate}</td>
-              <td>${lm.reason}</td>
-              <td style="text-align: right;">
-                <button class="btn btn-primary" style="padding: 4px 8px;" onclick="reinstateLeftMember('${lm.id}')">Reinstate</button>
-              </td>
-            </tr>
-          `).join('');
-
-          subContent = `
-            <div class="card" style="padding: 0; overflow: hidden;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Young Person</th>
-                    <th>Date Left</th>
-                    <th>Reason</th>
-                    <th style="text-align: right;">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>${leftRows.length ? leftRows : '<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--slate-400);">No left members recorded.</td></tr>'}</tbody>
-              </table>
-            </div>
-          `;
         }
 
         viewEl.innerHTML = `${subNav}${subContent}`;
       }
 
-      // TAB 3: OFFICIAL BADGES MATRIX
+      // TAB 3: BADGES MATRIX
       else if (appState.tab === 'badges') {
-        const filteredBadges = appState.badgeFilter === 'ALL' 
-          ? allSectionBadges 
-          : allSectionBadges.filter(b => b.cat.toLowerCase().includes(appState.badgeFilter.toLowerCase()));
-
-        const topAwards = filteredBadges.filter(b => b.cat.includes('Top'));
-        const challengeAwards = filteredBadges.filter(b => b.cat.includes('Challenge'));
-        const activityBadges = filteredBadges.filter(b => b.cat.includes('Activity'));
-        const stagedBadges = filteredBadges.filter(b => b.cat.includes('Staged'));
-
-        const optGroups = `
-          <optgroup label="Top Awards (${topAwards.length})">
-            ${topAwards.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
-          </optgroup>
-          <optgroup label="Challenge Awards (${challengeAwards.length})">
-            ${challengeAwards.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
-          </optgroup>
-          <optgroup label="Activity Badges (${activityBadges.length})">
-            ${activityBadges.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
-          </optgroup>
-          <optgroup label="Staged Activity Badges (${stagedBadges.length})">
-            ${stagedBadges.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
-          </optgroup>
-        `;
+        const activeMembers = appState.members.filter(m => m.section === appState.section);
 
         const thStages = curBadge.stages.map((st, i) => `
           <th style="text-align: center; min-width: 110px; font-size: 11px; line-height: 1.3;" title="${st}">
-            <div style="color: var(--slate-400); font-size: 10px; font-weight: 800;">PART ${i+1}</div>
+            <div style="color: var(--slate-400); font-size: 10px; font-weight: 800;">STAGE ${i+1}</div>
             ${st}
           </th>
         `).join('');
 
-        const kidRows = appState.members.map(m => {
+        const kidRows = activeMembers.map(m => {
           const progress = m.badgeProgress[curBadge.id] || [];
           const doneCount = progress.filter(Boolean).length;
           const total = curBadge.stages.length;
@@ -2051,16 +1073,9 @@
                 <div style="font-size: 11px; color: var(--slate-500);">${m.patrol}</div>
               </td>
               <td style="white-space: nowrap; text-align: center;">
-                <span class="tag ${pct === 100 ? 'tag-green' : pct > 0 ? 'tag-purple' : 'tag-blue'}" style="font-size: 11px;">
-                  ${pct}% (${doneCount}/${total})
-                </span>
+                <span class="tag ${pct === 100 ? 'tag-green' : 'tag-purple'}">${pct}% (${doneCount}/${total})</span>
               </td>
               ${stageToggles}
-              <td style="text-align: right; white-space: nowrap;">
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="markAllStagesForKid('${m.id}', '${curBadge.id}')">
-                  ${pct === 100 ? 'Clear All' : 'Mark All Done'}
-                </button>
-              </td>
             </tr>
           `;
         }).join('');
@@ -2071,23 +1086,14 @@
               <div>
                 <span class="tag tag-purple">${curBadge.cat}</span>
                 <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">${curBadge.name}</h2>
-                <p style="font-size: 12px; color: var(--slate-500);">${curBadge.stages.length} criteria in syllabus • Section: ${appState.section.toUpperCase()}</p>
+                <p style="font-size: 12px; color: var(--slate-500);">Section: ${appState.section.toUpperCase()}</p>
               </div>
 
-              <div style="min-width: 320px;">
-                <label style="font-size: 11px; font-weight: 800; color: var(--slate-500); text-transform: uppercase; display: block; margin-bottom: 4px;">Choose Badge from scouts.org.uk:</label>
+              <div style="min-width: 280px;">
                 <select class="form-control" style="font-weight: 700; font-size: 13px;" onchange="selectBadge(this.value)">
-                  ${optGroups}
+                  ${allSectionBadges.map(b => `<option value="${b.id}" ${b.id === curBadge.id ? 'selected' : ''}>${b.name}</option>`).join('')}
                 </select>
               </div>
-            </div>
-
-            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; border-top: 1px solid var(--slate-100); padding-top: 10px;">
-              <button class="btn ${appState.badgeFilter === 'ALL' ? 'btn-dark' : 'btn-outline'}" onclick="setBadgeFilter('ALL')">All (${allSectionBadges.length})</button>
-              <button class="btn ${appState.badgeFilter === 'Top' ? 'btn-dark' : 'btn-outline'}" onclick="setBadgeFilter('Top')">Top Awards</button>
-              <button class="btn ${appState.badgeFilter === 'Challenge' ? 'btn-dark' : 'btn-outline'}" onclick="setBadgeFilter('Challenge')">Challenge Awards</button>
-              <button class="btn ${appState.badgeFilter === 'Activity' ? 'btn-dark' : 'btn-outline'}" onclick="setBadgeFilter('Activity')">Activity Badges</button>
-              <button class="btn ${appState.badgeFilter === 'Staged' ? 'btn-dark' : 'btn-outline'}" onclick="setBadgeFilter('Staged')">Staged Badges</button>
             </div>
           </div>
 
@@ -2098,418 +1104,62 @@
                   <th style="min-width: 180px;">Young Person</th>
                   <th style="text-align: center; width: 100px;">Progress</th>
                   ${thStages}
-                  <th style="text-align: right; width: 120px;">Quick Sign-Off</th>
                 </tr>
               </thead>
               <tbody>
-                ${kidRows.length ? kidRows : `<tr><td colspan="${curBadge.stages.length + 3}" style="text-align: center; padding: 24px; color: var(--slate-400);">No young people currently enrolled in this section. Add a member in the Young People tab to start tracking badges.</td></tr>`}
+                ${kidRows.length ? kidRows : `<tr><td colspan="${curBadge.stages.length + 2}" style="text-align: center; padding: 24px; color: var(--slate-400);">No members enrolled in ${appState.section.toUpperCase()}.</td></tr>`}
               </tbody>
             </table>
           </div>
         `;
       }
 
-      // TAB 4: ACTIVITIES & GAMES BANK
-      else if (appState.tab === 'activities') {
-        const actCards = appState.activities.map(a => `
-          <div class="card" style="margin-bottom: 0;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-              <div>
-                <span class="tag tag-blue" style="margin-bottom: 4px;">${a.badge}</span>
-                <h3 style="font-size: 16px; font-weight: 800;">${a.title}</h3>
-                <div style="font-size: 11px; color: var(--slate-500);">${a.duration}</div>
-              </div>
-              <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteActivity('${a.id}')">✕ Delete</button>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-600); margin-bottom: 10px; line-height: 1.4;">${a.desc}</p>
-            <div style="font-size: 11px; background: var(--slate-50); padding: 8px; border-radius: 6px; border: 1px solid var(--slate-200); margin-bottom: 12px;">
-              <strong>Equipment:</strong> ${a.equip}
-            </div>
-            <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="addActivityToProgramme('${a.id}')">
-              📅 Add this Activity to Section Programme
-            </button>
-          </div>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
-            <div>
-              <h2 style="font-size: 18px; font-weight: 900;">Section Activities & Games Bank</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">Plan games and add them directly into your weekly meeting programme.</p>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <a href="https://www.scouts.org.uk/activities/" target="_blank" class="btn btn-dark" style="text-decoration: none;">Live Search scouts.org.uk/activities ↗</a>
-              <button class="btn btn-primary" onclick="openAddActivityModal()">+ Add New Activity</button>
-            </div>
-          </div>
-          <div class="grid-2">${actCards.length ? actCards : '<div class="card"><p style="color: var(--slate-400);">No activities added yet. Click "+ Add New Activity" above to create your first activity.</p></div>'}</div>
-        `;
-      }
-
-      // TAB 5: PROGRAMME & EVENTS
-      else if (appState.tab === 'events') {
-        const progRows = appState.programme.map(p => `
-          <div class="card" style="margin-bottom: 10px; border-left: 4px solid var(--primary);">
-            <span class="tag tag-green">${p.date}</span>
-            <h4 style="font-size: 15px; font-weight: 800; margin-top: 4px;">${p.title}</h4>
-            <div style="font-size: 11px; color: var(--slate-500);">Leader: ${p.lead}</div>
-          </div>
-        `).join('');
-
-        const eventCards = appState.events.map(e => `
-          <div class="card" style="margin-bottom: 0;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-              <div>
-                <h3 style="font-size: 16px; font-weight: 800;">${e.title}</h3>
-                <div style="font-size: 12px; color: var(--slate-500);">${e.date} • ${e.location}</div>
-              </div>
-              <span class="tag tag-green">${e.cost}</span>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-600); margin-bottom: 12px;">${e.desc}</p>
-            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--slate-100); padding-top: 12px;">
-              <span style="font-size: 11px; color: var(--slate-400);">Permit: ${e.permit}</span>
-              <button class="btn btn-primary" onclick="openPORModal('${e.id}')">Generate POR Consent Form</button>
-            </div>
-          </div>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
-            <div>
-              <h2 style="font-size: 18px; font-weight: 900;">Section Programme & Overnight Events</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">Weekly pack schedule and outdoor camp planning.</p>
-            </div>
-            ${appState.role !== 'parent' ? '<button class="btn btn-primary" onclick="openAddEventModal()">+ Add New Event / Camp</button>' : ''}
-          </div>
-
-          <div style="margin-bottom: 24px;">
-            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 12px;">Weekly Meeting Programme</h3>
-            ${progRows.length ? progRows : '<p style="font-size: 12px; color: var(--slate-500);">No weekly sessions scheduled yet.</p>'}
-          </div>
-
-          <div>
-            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 12px;">Overnight Camps & Expeditions</h3>
-            <div class="grid-2">${eventCards.length ? eventCards : '<div class="card"><p style="color: var(--slate-400);">No camps scheduled yet. Click "+ Add New Event / Camp" above.</p></div>'}</div>
-          </div>
-        `;
-      }
-
-      // TAB 6: MESSAGES
-      else if (appState.tab === 'messages') {
-        const msgCards = appState.messages.map(m => `
-          <div class="card" style="margin-bottom: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-              <div>
-                <strong style="font-size: 14px; color: var(--slate-900);">${m.subject}</strong>
-                <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">
-                  From: <span class="tag tag-blue">${m.sender}</span> → To: <span class="tag tag-purple">${m.recipient}</span>
-                </div>
-              </div>
-              <span style="font-size: 11px; color: var(--slate-400);">${m.timestamp}</span>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-700); background: var(--slate-50); padding: 12px; border-radius: 8px; border: 1px solid var(--slate-200); line-height: 1.5;">
-              ${m.body}
-            </p>
-          </div>
-        `).join('');
-
-        viewEl.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
-            <div>
-              <h2 style="font-size: 18px; font-weight: 900;">Section & Parent Messages</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">Direct messaging with outbound notification simulation.</p>
-            </div>
-            <button class="btn btn-primary" onclick="openComposeMessageModal()">+ Compose New Message</button>
-          </div>
-          <div>${msgCards.length ? msgCards : '<div class="card"><p style="color: var(--slate-400);">No messages dispatched yet.</p></div>'}</div>
-        `;
-      }
-
-      // TAB 7: PAYMENTS & GIFT AID
-      else if (appState.tab === 'payments') {
-        const giftAidMembers = appState.members.filter(m => m.giftAid);
-        const estimatedReclaim = (giftAidMembers.length * 40 * 0.25).toFixed(2);
-
-        const subNav = `
-          <div class="subnav">
-            <button class="subnav-btn ${appState.paySubView === 'bank' ? 'active' : ''}" onclick="setPaySubView('bank')">Group Bank & Section Subs</button>
-            <button class="subnav-btn ${appState.paySubView === 'giftaid' ? 'active' : ''}" onclick="setPaySubView('giftaid')">HMRC Gift Aid Claims (${giftAidMembers.length})</button>
-          </div>
-        `;
-
-        let content = '';
-
-        if (appState.paySubView === 'bank') {
-          const secPriceInputs = appState.sections.map(s => `
-            <div class="form-group">
-              <label>${s.name} Subs (per term)</label>
-              <input class="form-control" id="pr-${s.id}" value="${appState.sectionPricing[s.id] || '£40.00'}" required />
-            </div>
-          `).join('');
-
-          content = `
-            <div class="grid-2">
-              <div class="card" style="border: 2px solid var(--emerald-100);">
-                <form onsubmit="saveBankDetails(event)">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <div>
-                      <span class="tag tag-green">Settlement Account</span>
-                      <h3 style="font-size: 16px; font-weight: 800; margin-top: 4px;">Group Bank Account Details</h3>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Update Bank</button>
-                  </div>
-                  <div class="form-group">
-                    <label>Bank Name *</label>
-                    <input class="form-control" id="bk-name" value="${appState.bankDetails.bankName}" required />
-                  </div>
-                  <div class="form-group">
-                    <label>Account Name *</label>
-                    <input class="form-control" id="bk-acc-name" value="${appState.bankDetails.accountName}" required />
-                  </div>
-                  <div class="grid-2">
-                    <div class="form-group">
-                      <label>Sort Code *</label>
-                      <input class="form-control" id="bk-sort" value="${appState.bankDetails.sortCode}" required />
-                    </div>
-                    <div class="form-group">
-                      <label>Account Number *</label>
-                      <input class="form-control" id="bk-num" value="${appState.bankDetails.accountNumber}" required />
-                    </div>
-                  </div>
-                  <div class="form-group">
-                    <label>Notes / Settlement Instructions</label>
-                    <textarea class="form-control" id="bk-notes" rows="2">${appState.bankDetails.settlementNotes}</textarea>
-                  </div>
-                </form>
-              </div>
-
-              <div class="card">
-                <form onsubmit="saveSectionPricing(event)">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <div>
-                      <span class="tag tag-blue">Subscription Matrix</span>
-                      <h3 style="font-size: 16px; font-weight: 800; margin-top: 4px;">Set Prices for All Sections</h3>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Save Section Subs</button>
-                  </div>
-                  <div class="grid-2">
-                    ${secPriceInputs}
-                  </div>
-                </form>
-              </div>
-            </div>
-          `;
-        } else {
-          const gaRows = giftAidMembers.map(m => `
-            <tr>
-              <td><strong>${m.parent}</strong></td>
-              <td>${m.firstName} ${m.lastName} (${m.section.toUpperCase()})</td>
-              <td>${m.address}</td>
-              <td><span class="tag tag-green">HMRC Valid</span></td>
-              <td>${m.giftAidDate}</td>
-            </tr>
-          `).join('');
-
-          content = `
-            <div class="card" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-              <div>
-                <h3 style="font-size: 18px; font-weight: 900;">HMRC Gift Aid Tax Reclaims</h3>
-                <p style="font-size: 12px; color: var(--slate-500);">Reclaim 25% tax relief on eligible subscriptions from UK taxpayers.</p>
-              </div>
-              <div style="display: flex; gap: 12px; align-items: center;">
-                <div style="text-align: right;">
-                  <span style="font-size: 11px; color: var(--slate-500);">Estimated Termly Reclaim:</span>
-                  <div style="font-size: 18px; font-weight: 900; color: var(--emerald-700);">£${estimatedReclaim}</div>
-                </div>
-                <button class="btn btn-primary" onclick="exportGiftAidCSV()">📥 Export HMRC Claim CSV</button>
-              </div>
-            </div>
-
-            <div class="card" style="padding: 0; overflow-x: auto;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Donor (Parent / Guardian)</th>
-                    <th>Youth Member & Section</th>
-                    <th>Address / Postcode</th>
-                    <th>Declaration Status</th>
-                    <th>Date Signed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${gaRows.length ? gaRows : '<tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--slate-400);">No Gift Aid declarations recorded yet. Check the Gift Aid box when adding members.</td></tr>'}
-                </tbody>
-              </table>
-            </div>
-          `;
-        }
-
-        viewEl.innerHTML = `${subNav}${content}`;
-      }
-
-      // TAB 8: SUPER ADMIN SETTINGS
-      else if (appState.tab === 'super_settings') {
-        const subNav = `
-          <div class="subnav">
-            <button class="subnav-btn ${appState.adminSubView === 'groups' ? 'active' : ''}" onclick="setAdminSubView('groups')">Groups & Sections Setup</button>
-            <button class="subnav-btn ${appState.adminSubView === 'leaders' ? 'active' : ''}" onclick="setAdminSubView('leaders')">Leaders & Group-Wide Access</button>
-            <button class="subnav-btn ${appState.adminSubView === 'members' ? 'active' : ''}" onclick="setAdminSubView('members')">Remove Members & Parents</button>
-          </div>
-        `;
-
-        let content = '';
-
-        if (appState.adminSubView === 'groups') {
-          content = `
-            <div class="grid-2">
-              <div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                  <h3 style="font-size: 16px; font-weight: 800;">Scout Groups (${appState.groups.length})</h3>
-                  <button class="btn btn-primary" onclick="openAddGroupModal()">+ Add Group</button>
-                </div>
-                ${appState.groups.map(g => `
-                  <div class="card" style="margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                      <div>
-                        <strong>${g.name}</strong>
-                        <div style="font-size: 11px; color: var(--slate-500);">${g.hq} • Charity #${g.charityNo}</div>
-                      </div>
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteScoutGroup('${g.id}')">Remove Group</button>
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-
-              <div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                  <h3 style="font-size: 16px; font-weight: 800;">Configured Sections (${appState.sections.length})</h3>
-                  <button class="btn btn-primary" onclick="openAddSectionModal()">+ Add Section</button>
-                </div>
-                ${appState.sections.map(s => `
-                  <div class="card" style="margin-bottom: 10px; border-left: 4px solid ${s.color};">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                      <div>
-                        <strong>${s.name}</strong> (${s.age})
-                        <div style="font-size: 11px; color: var(--slate-500);">Sub-unit: ${s.unitTerm}</div>
-                      </div>
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteSection('${s.id}')">Remove Section</button>
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          `;
-        } else if (appState.adminSubView === 'leaders') {
-          const lRows = appState.leaders.map(l => `
-            <tr>
-              <td>
-                <strong>${l.name}</strong>
-                <div style="font-size: 11px; color: var(--slate-500);">${l.email} • ${l.phone}</div>
-              </td>
-              <td>
-                <span class="tag tag-blue">${l.role}</span>
-                ${l.approved ? '' : '<span class="tag tag-red" style="margin-left:4px;">Awaiting Approval</span>'}
-              </td>
-              <td>
-                ${l.allSectionsAccess 
-                  ? '<span class="tag tag-green">Full Group Access (All Sections)</span>' 
-                  : (l.sections || []).map(s => `<span class="tag tag-purple" style="margin-right:2px;">${s}</span>`).join('')}
-              </td>
-              <td style="text-align: right; white-space: nowrap;">
-                <button class="btn btn-outline" style="padding: 4px 8px;" onclick="openLeaderPermModal('${l.id}')">Edit Permissions</button>
-                ${l.approved
-                  ? `<button class="btn btn-danger" style="padding: 4px 8px; margin-left: 4px;" onclick="deleteLeader('${l.id}')">Revoke Access</button>`
-                  : `<button class="btn btn-primary" style="padding: 4px 8px; margin-left: 4px;" onclick="approveLeader('${l.id}')">Approve</button>`}
-              </td>
-            </tr>
-          `).join('');
-
-          content = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-              <h3 style="font-size: 16px; font-weight: 800;">Volunteer Leaders & Permissions</h3>
-            </div>
-            <div class="card" style="padding: 0; overflow-x: auto;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Leader & Contact</th>
-                    <th>Appointed Role</th>
-                    <th>Section Access Rights</th>
-                    <th style="text-align: right;">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>${lRows.length ? lRows : '<tr><td colspan="4" style="text-align:center; padding: 24px; color:var(--slate-400);">No leaders registered yet. Leaders register on the home portal.</td></tr>'}</tbody>
-              </table>
-            </div>
-          `;
-        } else {
-          const mRows = appState.members.map(m => `
-            <tr>
-              <td>
-                <strong>${m.firstName} ${m.lastName}</strong>
-                <div style="font-size: 11px; color: var(--slate-500);">${m.section.toUpperCase()} • ${m.patrol}</div>
-              </td>
-              <td>
-                ${m.parent}
-                <div style="font-size: 11px; color: var(--slate-500);">${m.phone}</div>
-              </td>
-              <td style="text-align: right;">
-                <button class="btn btn-danger" style="padding: 4px 8px;" onclick="deleteMemberPermanent('${m.id}')">Permanently Remove</button>
-              </td>
-            </tr>
-          `).join('');
-
-          content = `
-            <div class="card" style="padding: 0; overflow-x: auto;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Young Person</th>
-                    <th>Linked Parent</th>
-                    <th style="text-align: right;">Action</th>
-                  </tr>
-                </thead>
-                <tbody>${mRows.length ? mRows : '<tr><td colspan="3" style="text-align:center; padding: 24px; color:var(--slate-400);">No members enrolled.</td></tr>'}</tbody>
-              </table>
-            </div>
-          `;
-        }
-
-        viewEl.innerHTML = `${subNav}${content}`;
-      }
-
-      // TAB 9: PARENT PORTAL
-      else if (appState.tab === 'parent_portal') {
-        const myKids = appState.members.filter(m => m.parentEmail === appState.currentUser?.email) || [];
-        const kid = myKids[0] || appState.members[0];
-
+      // Default fallback for remaining views (Activities, Events, Messages)
+      else if (appState.tab === 'activities' || appState.tab === 'events' || appState.tab === 'messages') {
         viewEl.innerHTML = `
           <div class="card">
-            <span class="tag tag-purple">Parent Portal</span>
-            <h2 style="font-size: 20px; font-weight: 900; margin-top: 4px;">
-              ${kid ? `${kid.firstName} ${kid.lastName}` : 'Welcome Parent / Guardian'}
-            </h2>
-            <p style="font-size: 12px; color: var(--slate-500);">
-              ${kid ? `${kid.patrol} • Section: ${kid.section.toUpperCase()}` : 'No young person enrolled under this email yet.'}
-            </p>
+            <h2 style="font-size: 18px; font-weight: 900; text-transform: capitalize;">${appState.tab} (${appState.section.toUpperCase()})</h2>
+            <p style="font-size: 12px; color: var(--slate-500); margin-top: 4px;">Access granted for your assigned section roles.</p>
           </div>
-          ${!kid ? `
-            <div class="card" style="text-align: center; padding: 32px;">
-              <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 8px;">Enrol Your Young Person</h3>
-              <p style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">Complete your young person's profile to track official UK Scout badges and approve event consents.</p>
-              <button class="btn btn-primary" onclick="setTab('parent_profile_setup')">Enrol My Child Now →</button>
-            </div>
-          ` : `
-            <div class="card">
-              <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 8px;">Badge Progression & Criteria Completed</h3>
-              <p style="font-size: 12px; color: var(--slate-500);">Review progress with section leaders.</p>
-            </div>
-          `}
         `;
       }
     }
 
-    // INITIAL APP MOUNT (src/auth.js calls initApp() once Netlify Identity is ready)
+    function toggleKidStage(memberId, badgeId, stageIdx) {
+      const m = appState.members.find(x => x.id === memberId);
+      if (!m) return;
+      if (!m.badgeProgress) m.badgeProgress = {};
+      if (!m.badgeProgress[badgeId]) {
+        const b = (BADGES[appState.section] || []).find(x => x.id === badgeId);
+        m.badgeProgress[badgeId] = new Array(b ? b.stages.length : 6).fill(false);
+      }
+      m.badgeProgress[badgeId][stageIdx] = !m.badgeProgress[badgeId][stageIdx];
+      renderContent();
+      api('PATCH', `members/${m.id}`, { badgeProgress: m.badgeProgress }).catch(console.error);
+    }
+
+    function cycleAttendance(id) {
+      const order = { 'Unmarked': 'Present', 'Present': 'Absent', 'Absent': 'Late', 'Late': 'Explained', 'Explained': 'Present' };
+      appState.attendance[id] = order[appState.attendance[id] || 'Unmarked'];
+      renderContent();
+      api('PUT', 'attendance', { date: appState.attendanceDate, entries: [{ memberId: id, status: appState.attendance[id] }] }).catch(console.error);
+    }
+
+    function markAllPresent() {
+      const sectionMembers = appState.members.filter(m => m.section === appState.section);
+      sectionMembers.forEach(m => appState.attendance[m.id] = 'Present');
+      renderContent();
+    }
+
+    async function handleSignOut() {
+      if (window.identity) await identity.logout().catch(() => {});
+      appState.isAuthenticated = false;
+      document.getElementById('main-header').style.display = 'none';
+      document.getElementById('main-nav').style.display = 'none';
+      document.getElementById('section-bar').style.display = 'none';
+      renderContent();
+    }
+
     renderTabs();
     renderContent();
   </script>
