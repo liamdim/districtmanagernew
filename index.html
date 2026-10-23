@@ -441,6 +441,11 @@
       currentGroupId: '',
       selectedChildId: '',
       searchQuery: '',
+      progSubView: 'programme',
+      progShowPast: false,
+      activitySearch: '',
+      activityTag: '',
+      activityLocation: '',
       
       loading: true,
       profile: null,
@@ -1061,59 +1066,199 @@
       await refreshApp();
     }
 
-    // --- ACTIVITIES MODALS ---
-    function openAddActivityModal() {
+    // --- PROGRAMME, ACTIVITIES & EVENTS HELPERS ---
+    const escAttr = v => String(v ?? '').replace(/[&<>"']/g, c => HTML_ESC[c]);
+    function rawVal(v) {
+      if (typeof v === 'string') return unescapeHtml(v);
+      if (Array.isArray(v)) return v.map(rawVal);
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rawVal(x)]));
+      return v;
+    }
+    const isIsoDate = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+
+    function fmtDate(d, withYear = true) {
+      if (!isIsoDate(d)) return d || 'TBC';
+      const [y, m, day] = d.split('-').map(Number);
+      return new Date(y, m - 1, day).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
+    }
+
+    function addDays(iso, n) {
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y, m - 1, d + n);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    }
+
+    function eventDateRange(e) {
+      const start = fmtDate(e.date);
+      const end = e.endDate && e.endDate !== e.date ? ` → ${fmtDate(e.endDate)}` : '';
+      const times = e.startTime ? ` • ${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '';
+      return `${start}${end}${times}`;
+    }
+
+    const isPastDate = d => isIsoDate(d) && d < localDate();
+    const sectionBadgeNames = () => (BADGES[appState.section] || BADGES.cubs || []).map(b => b.name);
+    const sectionMeetings = () => appState.programme.filter(p => p.section === appState.section);
+    const sectionActivities = () => appState.activities.filter(a => a.section === appState.section);
+
+    // Members that can be invited to an event (whole-group events include every visible member).
+    const eligibleMembers = e => appState.members.filter(m => !e.section || m.section === e.section);
+
+    function attendeeStats(e) {
+      const a = e.attendees || [];
+      return {
+        invited: a.length,
+        attending: a.filter(x => x.status === 'Attending').length,
+        declined: a.filter(x => x.status === 'Not attending').length,
+        awaiting: a.filter(x => x.status === 'Invited').length,
+        reserve: a.filter(x => x.status === 'Reserve').length,
+        consents: a.filter(x => x.consentBy).length,
+        paid: a.filter(x => x.paid).length
+      };
+    }
+
+    function printHtml(title, body) {
+      const w = window.open('', '_blank');
+      if (!w) { alert('Please allow pop-ups to print.'); return; }
+      w.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #0f172a; padding: 20px; }
+        h1 { font-size: 18px; margin: 0 0 4px; } h2 { font-size: 13px; color: #475569; margin: 0 0 14px; font-weight: normal; }
+        table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; vertical-align: top; }
+        th { background: #e2e8f0; } .muted { color: #64748b; }
+      </style></head><body>${body}</body></html>`);
+      w.document.close();
+      w.focus();
+      w.print();
+    }
+
+    // --- ACTIVITIES BANK ---
+    function setActivityFilter(key, value) {
+      appState[key] = value;
+      renderContent();
+      if (key === 'activitySearch') {
+        const el = document.getElementById('activity-search');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      }
+    }
+
+    function openActivityModal(actId) {
+      const a = appState.activities.find(x => x.id === actId);
       openAppModal(`
         <div class="modal-header">
-          <span style="font-weight: 800; font-size: 13px;">Add New Activity / Game to Bank</span>
+          <span style="font-weight: 800; font-size: 13px;">${a ? 'Edit Activity' : 'Add New Activity / Game to Bank'} • ${sectionName(appState.section)}</span>
           <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
         </div>
         <div class="modal-body">
-          <form onsubmit="handleSaveActivity(event)">
+          <form onsubmit="handleSaveActivity(event, '${a ? a.id : ''}')">
             <div class="form-group">
               <label>Activity Title *</label>
-              <input class="form-control" id="act-title" required placeholder="e.g. Knot Relay Game" />
+              <input class="form-control" id="act-title" required value="${a ? a.title : ''}" placeholder="e.g. Knot Relay Game" />
             </div>
-            <div class="grid-2">
+            <div class="grid-3">
               <div class="form-group">
-                <label>Duration & Location *</label>
-                <input class="form-control" id="act-duration" required placeholder="e.g. 20 mins • Main Hall" />
+                <label>Running Time</label>
+                <input class="form-control" id="act-duration" value="${a ? a.duration : ''}" placeholder="e.g. 20 mins" />
+              </div>
+              <div class="form-group">
+                <label>Indoor / Outdoor</label>
+                <select class="form-control" id="act-location">
+                  ${['', 'Indoor', 'Outdoor', 'Either'].map(l => `<option value="${l}" ${a && a.location === l ? 'selected' : ''}>${l || 'Not set'}</option>`).join('')}
+                </select>
               </div>
               <div class="form-group">
                 <label>Linked Badge</label>
-                <input class="form-control" id="act-badge" placeholder="e.g. Skills Challenge Award" />
+                <input class="form-control" id="act-badge" list="act-badge-list" value="${a ? a.badge : ''}" placeholder="Start typing a badge…" />
+                <datalist id="act-badge-list">${sectionBadgeNames().map(n => `<option value="${escAttr(n)}"></option>`).join('')}</datalist>
               </div>
             </div>
             <div class="form-group">
-              <label>Equipment Needed</label>
-              <input class="form-control" id="act-equip" placeholder="e.g. 6x Practice ropes" />
+              <label>Tags (comma separated)</label>
+              <input class="form-control" id="act-tags" value="${a ? (a.tags || []).join(', ') : ''}" placeholder="e.g. Game, Team building, Quiet, Wet weather" />
             </div>
             <div class="form-group">
-              <label>Instructions & Safety</label>
-              <textarea class="form-control" id="act-desc" rows="3" required placeholder="Describe activity rules..."></textarea>
+              <label>Equipment Needed</label>
+              <input class="form-control" id="act-equip" value="${a ? a.equip : ''}" placeholder="e.g. 6x Practice ropes" />
+            </div>
+            <div class="form-group">
+              <label>Instructions *</label>
+              <textarea class="form-control" id="act-desc" rows="4" required placeholder="Describe how to run the activity…">${a ? a.desc : ''}</textarea>
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Leader Preparation</label>
+                <textarea class="form-control" id="act-prep" rows="3" placeholder="Set-up before the meeting…">${a ? a.prep || '' : ''}</textarea>
+              </div>
+              <div class="form-group">
+                <label>Risk Assessment Notes</label>
+                <textarea class="form-control" id="act-risk" rows="3" placeholder="Hazards and controls…">${a ? a.risk || '' : ''}</textarea>
+              </div>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
               <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save Activity</button>
+              <button type="submit" class="btn btn-primary">${a ? 'Save Changes' : 'Save Activity'}</button>
             </div>
           </form>
         </div>
       `);
     }
 
-    function handleSaveActivity(e) {
+    function openAddActivityModal() { openActivityModal(''); }
+
+    function handleSaveActivity(e, actId) {
       e.preventDefault();
-      const newAct = {
+      const val = id => document.getElementById(id).value;
+      const payload = {
         groupId: appState.currentGroupId,
         section: appState.section,
-        title: document.getElementById('act-title').value,
-        duration: document.getElementById('act-duration').value,
-        badge: document.getElementById('act-badge').value,
-        equip: document.getElementById('act-equip').value,
-        desc: document.getElementById('act-desc').value
+        title: val('act-title'),
+        duration: val('act-duration'),
+        location: val('act-location'),
+        badge: val('act-badge'),
+        tags: val('act-tags').split(',').map(t => t.trim()).filter(Boolean),
+        equip: val('act-equip'),
+        desc: val('act-desc'),
+        prep: val('act-prep'),
+        risk: val('act-risk')
       };
       closeAppModal();
-      saveAndRefresh(api('POST', 'activities', newAct));
+      saveAndRefresh(actId ? api('PATCH', `activities/${actId}`, payload) : api('POST', 'activities', payload));
+    }
+
+    function duplicateActivity(actId) {
+      const a = appState.activities.find(x => x.id === actId);
+      if (!a) return;
+      saveAndRefresh(api('POST', 'activities', {
+        ...rawVal({ title: `${a.title} (copy)`, duration: a.duration, location: a.location, badge: a.badge, tags: a.tags || [], equip: a.equip, desc: a.desc, prep: a.prep || '', risk: a.risk || '' }),
+        groupId: appState.currentGroupId,
+        section: a.section
+      }));
+    }
+
+    function openActivityDetailModal(actId) {
+      const a = appState.activities.find(x => x.id === actId);
+      if (!a) return;
+      const block = (label, text) => text ? `<div style="margin-bottom: 12px;"><div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--slate-500); margin-bottom: 2px;">${label}</div><div style="white-space: pre-wrap; line-height: 1.5;">${text}</div></div>` : '';
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">${a.title}</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px;">
+            ${a.duration ? `<span class="tag tag-blue">⏱ ${a.duration}</span>` : ''}
+            ${a.location ? `<span class="tag tag-amber">${a.location}</span>` : ''}
+            ${a.badge ? `<span class="tag tag-green">🏅 ${a.badge}</span>` : ''}
+            ${(a.tags || []).map(t => `<span class="tag tag-purple">${t}</span>`).join('')}
+          </div>
+          ${block('Instructions', a.desc)}
+          ${block('Equipment', a.equip)}
+          ${block('Leader Preparation', a.prep)}
+          ${block('Risk Assessment', a.risk)}
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+            <button class="btn btn-outline" onclick="openActivityModal('${a.id}')">✏️ Edit</button>
+            <button class="btn btn-primary" onclick="addActivityToProgramme('${a.id}')">📅 Add to Programme</button>
+          </div>
+        </div>
+      `);
     }
 
     function deleteActivity(actId) {
@@ -1122,27 +1267,479 @@
       }
     }
 
-    async function addActivityToProgramme(actId) {
+    // Pick an upcoming meeting to add the activity to, or start a new meeting with it.
+    function addActivityToProgramme(actId) {
       const act = appState.activities.find(a => a.id === actId);
       if (!act) return;
-      const d = prompt('Enter meeting date (YYYY-MM-DD):', localDate());
-      if (!d) return;
+      const upcoming = sectionMeetings().filter(p => !isPastDate(p.date));
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">Add "${act.title}" to the Programme</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          ${upcoming.length ? `
+            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--slate-500); margin-bottom: 8px;">Add to an upcoming meeting</div>
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px;">
+              ${upcoming.map(p => `
+                <button class="btn btn-outline" style="justify-content: space-between;" onclick="appendActivityToMeeting('${p.id}', '${act.id}')">
+                  <span><strong>${fmtDate(p.date)}</strong> • ${p.title}</span>
+                  <span style="color: var(--slate-500);">${(p.activitiesLinked || []).length} activities</span>
+                </button>
+              `).join('')}
+            </div>
+          ` : `<p style="color: var(--slate-500); margin-bottom: 14px;">There are no upcoming meetings for this section yet.</p>`}
+          <button class="btn btn-primary" onclick="openMeetingModal('', '${act.id}')">+ Plan a New Meeting with this Activity</button>
+        </div>
+      `);
+    }
 
+    function meetingPayload(p, overrides = {}) {
+      return {
+        ...rawVal({
+          date: p.date, title: p.title, lead: p.lead, startTime: p.startTime, endTime: p.endTime, location: p.location || '',
+          parentNotes: p.parentNotes || '', leaderNotes: p.leaderNotes || '', activitiesLinked: p.activitiesLinked || [], badges: p.badges || []
+        }),
+        helpersNeeded: p.helpersNeeded || 0,
+        visibleToParents: p.visibleToParents !== false,
+        ...overrides
+      };
+    }
+
+    function appendActivityToMeeting(meetingId, actId) {
+      const p = appState.programme.find(x => x.id === meetingId);
+      const act = appState.activities.find(a => a.id === actId);
+      if (!p || !act) return;
+      const acts = [...new Set([...(p.activitiesLinked || []), act.title])];
+      const badges = act.badge && act.badge !== 'Scout Skill' ? [...new Set([...(p.badges || []), act.badge])] : p.badges || [];
+      closeAppModal();
+      saveAndRefresh(api('PATCH', `programme/${p.id}`, meetingPayload(p, { activitiesLinked: rawVal(acts), badges: rawVal(badges) })), `Added to ${unescapeHtml(p.title)} on ${fmtDate(p.date)}.`);
+    }
+
+    // --- PROGRAMME PLANNER ---
+    function setProgSubView(v) {
+      appState.progSubView = v;
+      renderContent();
+    }
+
+    function openMeetingModal(meetingId, withActivityId) {
+      const p = appState.programme.find(x => x.id === meetingId);
+      const preAct = appState.activities.find(a => a.id === withActivityId);
+      const last = [...sectionMeetings()].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+      const defaultDate = last && isIsoDate(last.date) && !isPastDate(last.date) ? addDays(last.date, 7) : localDate();
+      const linked = new Set(p ? p.activitiesLinked || [] : preAct ? [preAct.title] : []);
+      const linkedBadges = new Set(p ? p.badges || [] : preAct && preAct.badge !== 'Scout Skill' ? [preAct.badge] : []);
+      const bankTitles = sectionActivities().map(a => a.title);
+      const extraActs = [...linked].filter(t => !bankTitles.includes(t));
+
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">${p ? 'Edit Meeting' : 'Plan a Meeting'} • ${sectionName(appState.section)}</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <form onsubmit="handleSaveMeeting(event, '${p ? p.id : ''}')">
+            <div class="grid-3">
+              <div class="form-group">
+                <label>Date *</label>
+                <input type="date" class="form-control" id="mt-date" required value="${p ? (isIsoDate(p.date) ? p.date : '') : defaultDate}" />
+              </div>
+              <div class="form-group">
+                <label>Start</label>
+                <input type="time" class="form-control" id="mt-start" value="${p ? p.startTime : (last?.startTime || '18:30')}" />
+              </div>
+              <div class="form-group">
+                <label>Finish</label>
+                <input type="time" class="form-control" id="mt-end" value="${p ? p.endTime : (last?.endTime || '20:00')}" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Meeting Title / Theme *</label>
+              <input class="form-control" id="mt-title" required value="${p ? p.title : preAct ? preAct.title : ''}" placeholder="e.g. Fire Lighting & Backwoods Cooking" />
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Location</label>
+                <input class="form-control" id="mt-location" value="${p ? p.location || '' : (last?.location || '')}" placeholder="e.g. Scout HQ / Local woods" />
+              </div>
+              <div class="form-group">
+                <label>Leader Running It</label>
+                <input class="form-control" id="mt-lead" value="${p ? p.lead : (appState.currentUser?.name || '')}" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Activities from your bank</label>
+              <div style="max-height: 150px; overflow-y: auto; border: 1px solid var(--slate-200); border-radius: 6px; padding: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px;">
+                ${bankTitles.length ? bankTitles.map(t => `
+                  <label style="display: flex; gap: 6px; align-items: center; font-size: 12px; text-transform: none; font-weight: 600; color: var(--slate-700);">
+                    <input type="checkbox" class="mt-act" value="${t}" ${linked.has(t) ? 'checked' : ''} /> ${t}
+                  </label>
+                `).join('') : `<span style="color: var(--slate-500);">No activities in this section's bank yet.</span>`}
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Other activities (one per line)</label>
+              <textarea class="form-control" id="mt-extra" rows="2" placeholder="e.g. Opening ceremony&#10;Flag break">${extraActs.join('\n')}</textarea>
+            </div>
+            <div class="form-group">
+              <label>Badges worked on</label>
+              <div style="max-height: 150px; overflow-y: auto; border: 1px solid var(--slate-200); border-radius: 6px; padding: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px;">
+                ${sectionBadgeNames().map(n => `
+                  <label style="display: flex; gap: 6px; align-items: center; font-size: 11px; text-transform: none; font-weight: 600; color: var(--slate-700);">
+                    <input type="checkbox" class="mt-badge" value="${escAttr(n)}" ${linkedBadges.has(escAttr(n)) || linkedBadges.has(n) ? 'checked' : ''} /> ${escAttr(n)}
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Notes for Parents (kit, uniform, etc.)</label>
+                <textarea class="form-control" id="mt-parent-notes" rows="3" placeholder="e.g. Bring old clothes and a torch">${p ? p.parentNotes || '' : ''}</textarea>
+              </div>
+              <div class="form-group">
+                <label>Leader-only Notes</label>
+                <textarea class="form-control" id="mt-leader-notes" rows="3" placeholder="Only visible to leaders">${p ? p.leaderNotes || '' : ''}</textarea>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Parent Helpers Needed</label>
+                <input type="number" min="0" max="50" class="form-control" id="mt-helpers" value="${p ? p.helpersNeeded || 0 : 0}" />
+              </div>
+              <div class="form-group" style="display: flex; align-items: flex-end;">
+                <label style="display: flex; gap: 8px; align-items: center; text-transform: none; font-size: 12px; color: var(--slate-700);">
+                  <input type="checkbox" id="mt-visible" ${!p || p.visibleToParents !== false ? 'checked' : ''} /> Show this meeting to parents
+                </label>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary">${p ? 'Save Changes' : 'Add to Programme'}</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function handleSaveMeeting(e, meetingId) {
+      e.preventDefault();
+      const val = id => document.getElementById(id).value;
+      const checked = cls => [...document.querySelectorAll(`.${cls}:checked`)].map(el => el.value);
+      const payload = {
+        groupId: appState.currentGroupId,
+        section: appState.section,
+        date: val('mt-date'),
+        startTime: val('mt-start'),
+        endTime: val('mt-end'),
+        title: val('mt-title'),
+        location: val('mt-location'),
+        lead: val('mt-lead'),
+        activitiesLinked: [...new Set([...checked('mt-act'), ...val('mt-extra').split('\n').map(x => x.trim()).filter(Boolean)])],
+        badges: checked('mt-badge'),
+        parentNotes: val('mt-parent-notes'),
+        leaderNotes: val('mt-leader-notes'),
+        helpersNeeded: Number(val('mt-helpers')) || 0,
+        visibleToParents: document.getElementById('mt-visible').checked
+      };
+      closeAppModal();
+      appState.progSubView = 'programme';
+      saveAndRefresh(meetingId ? api('PATCH', `programme/${meetingId}`, payload) : api('POST', 'programme', payload));
+      if (appState.tab !== 'events') setTab('events');
+    }
+
+    function duplicateMeeting(meetingId) {
+      const p = appState.programme.find(x => x.id === meetingId);
+      if (!p) return;
+      const next = isIsoDate(p.date) ? addDays(p.date, 7) : localDate();
+      const d = prompt('Copy this meeting to which date? (YYYY-MM-DD)', next);
+      if (!d) return;
+      saveAndRefresh(api('POST', 'programme', { ...meetingPayload(p, { date: d }), groupId: appState.currentGroupId, section: p.section }));
+    }
+
+    function deleteMeeting(meetingId) {
+      if (confirm('Remove this meeting from the programme?')) {
+        saveAndRefresh(api('DELETE', `programme/${meetingId}`));
+      }
+    }
+
+    function toggleMeetingVisibility(meetingId) {
+      const p = appState.programme.find(x => x.id === meetingId);
+      if (!p) return;
+      saveAndRefresh(api('PATCH', `programme/${p.id}`, meetingPayload(p, { visibleToParents: p.visibleToParents === false })));
+    }
+
+    function printProgramme() {
+      const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || { name: 'Scout Group' };
+      const meetings = sectionMeetings().filter(p => appState.progShowPast || !isPastDate(p.date));
+      printHtml(`${sectionName(appState.section)} Programme`, `
+        <h1>${curGroup.name} — ${sectionName(appState.section)} Programme</h1>
+        <h2>Printed ${fmtDate(localDate())}</h2>
+        <table>
+          <thead><tr><th>Date</th><th>Time</th><th>Meeting</th><th>Activities</th><th>Badges</th><th>Notes for Parents</th><th>Leader</th></tr></thead>
+          <tbody>${meetings.map(p => `
+            <tr>
+              <td>${fmtDate(p.date)}</td><td>${p.startTime}–${p.endTime}</td>
+              <td><strong>${p.title}</strong>${p.location ? `<br><span class="muted">${p.location}</span>` : ''}</td>
+              <td>${(p.activitiesLinked || []).join('<br>')}</td><td>${(p.badges || []).join('<br>')}</td>
+              <td>${p.parentNotes || ''}</td><td>${p.lead}</td>
+            </tr>`).join('') || '<tr><td colspan="7">No meetings planned.</td></tr>'}
+          </tbody>
+        </table>
+      `);
+    }
+
+    // --- EVENTS & CAMPS ---
+    function openEventModal(evtId) {
+      const e = appState.events.find(x => x.id === evtId);
+      const p = appState.profile || {};
+      const canWholeGroup = p.isAdmin || p.allSectionsAccess;
+      const sections = getAvailableSections();
+      const curSection = e ? e.section || '' : appState.section;
+      const types = ['Camp', 'Day Trip', 'Activity', 'Fundraiser', 'Meeting', 'Other'];
+
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">${e ? 'Edit Event' : 'Create Event / Camp'}</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <form onsubmit="handleSaveEvent(event, '${e ? e.id : ''}')">
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Event Title *</label>
+                <input class="form-control" id="ev-title" required value="${e ? e.title : ''}" placeholder="e.g. Spring Camp 2027" />
+              </div>
+              <div class="grid-2" style="gap: 8px;">
+                <div class="form-group">
+                  <label>Type</label>
+                  <select class="form-control" id="ev-type">${types.map(t => `<option ${e && e.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+                </div>
+                <div class="form-group">
+                  <label>Who is invited?</label>
+                  <select class="form-control" id="ev-section">
+                    ${canWholeGroup ? `<option value="" ${curSection === '' ? 'selected' : ''}>Whole Group</option>` : ''}
+                    ${sections.map(s => `<option value="${s.id}" ${curSection === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="grid-4">
+              <div class="form-group">
+                <label>Start Date *</label>
+                <input type="date" class="form-control" id="ev-date" required value="${e && isIsoDate(e.date) ? e.date : ''}" />
+              </div>
+              <div class="form-group">
+                <label>Start Time</label>
+                <input type="time" class="form-control" id="ev-start" value="${e ? e.startTime || '' : ''}" />
+              </div>
+              <div class="form-group">
+                <label>End Date</label>
+                <input type="date" class="form-control" id="ev-end-date" value="${e ? e.endDate || '' : ''}" />
+              </div>
+              <div class="form-group">
+                <label>End Time</label>
+                <input type="time" class="form-control" id="ev-end" value="${e ? e.endTime || '' : ''}" />
+              </div>
+            </div>
+            ${e && !isIsoDate(e.date) ? `<p style="font-size: 11px; color: var(--amber-800); margin: -4px 0 10px;">Previously entered date: "${e.date}" — please pick it on the calendar.</p>` : ''}
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Location *</label>
+                <input class="form-control" id="ev-location" required value="${e ? e.location : ''}" placeholder="e.g. Kingswood Activity Centre" />
+              </div>
+              <div class="form-group">
+                <label>Meeting / Drop-off Point</label>
+                <input class="form-control" id="ev-meet" value="${e ? e.meetPoint || '' : ''}" placeholder="e.g. Scout HQ car park" />
+              </div>
+            </div>
+            <div class="grid-4">
+              <div class="form-group">
+                <label>Cost</label>
+                <input class="form-control" id="ev-cost" value="${e ? e.cost : ''}" placeholder="e.g. £45.00" />
+              </div>
+              <div class="form-group">
+                <label>Places (0 = unlimited)</label>
+                <input type="number" min="0" class="form-control" id="ev-capacity" value="${e ? e.capacity || 0 : 0}" />
+              </div>
+              <div class="form-group">
+                <label>Reply By</label>
+                <input type="date" class="form-control" id="ev-confirm" value="${e ? e.confirmBy || '' : ''}" />
+              </div>
+              <div class="form-group">
+                <label>Nights Away</label>
+                <input type="number" min="0" class="form-control" id="ev-nights" value="${e ? e.nightsAway || 0 : 0}" />
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>Leader in Charge *</label>
+                <input class="form-control" id="ev-leader" required value="${e ? e.leader : (appState.currentUser?.name || '')}" />
+              </div>
+              <div class="form-group">
+                <label>Permit / Approval</label>
+                <input class="form-control" id="ev-permit" value="${e ? e.permit : 'Nights Away Permit Approved'}" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Description for Parents</label>
+              <textarea class="form-control" id="ev-desc" rows="3" placeholder="What's happening, what's included…">${e ? e.desc : ''}</textarea>
+            </div>
+            <div class="form-group">
+              <label>Kit List</label>
+              <textarea class="form-control" id="ev-kit" rows="3" placeholder="Sleeping bag, torch, waterproofs…">${e ? e.kitList || '' : ''}</textarea>
+            </div>
+            <label style="display: flex; gap: 8px; align-items: center; font-size: 12px; font-weight: 700; color: var(--slate-700);">
+              <input type="checkbox" id="ev-published" ${!e || e.published !== false ? 'checked' : ''} /> Published — parents can see this event and reply
+            </label>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+              <button type="button" class="btn btn-outline" onclick="closeAppModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary">${e ? 'Save Changes' : 'Create Event'}</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function handleSaveEvent(ev, evtId) {
+      ev.preventDefault();
+      const val = id => document.getElementById(id).value;
+      const payload = {
+        groupId: appState.currentGroupId,
+        title: val('ev-title'),
+        type: val('ev-type'),
+        section: val('ev-section'),
+        date: val('ev-date'),
+        startTime: val('ev-start'),
+        endDate: val('ev-end-date'),
+        endTime: val('ev-end'),
+        location: val('ev-location'),
+        meetPoint: val('ev-meet'),
+        cost: val('ev-cost'),
+        capacity: Number(val('ev-capacity')) || 0,
+        confirmBy: val('ev-confirm'),
+        nightsAway: Number(val('ev-nights')) || 0,
+        leader: val('ev-leader'),
+        permit: val('ev-permit'),
+        desc: val('ev-desc'),
+        kitList: val('ev-kit'),
+        published: document.getElementById('ev-published').checked
+      };
+      closeAppModal();
+      appState.progSubView = 'events';
+      saveAndRefresh(evtId ? api('PATCH', `events/${evtId}`, payload) : api('POST', 'events', payload));
+    }
+
+    function deleteEvent(evtId) {
+      if (confirm('Delete this event? All replies and consent records for it will also be removed.')) {
+        saveAndRefresh(api('DELETE', `events/${evtId}`));
+      }
+    }
+
+    function openAttendeesModal(evtId) {
+      const e = appState.events.find(x => x.id === evtId);
+      if (!e) return;
+      const byMember = Object.fromEntries((e.attendees || []).map(a => [a.memberId, a]));
+      const people = eligibleMembers(e);
+      const st = attendeeStats(e);
+      const statusTag = { 'Attending': 'tag-green', 'Not attending': 'tag-red', 'Invited': 'tag-blue', 'Reserve': 'tag-amber' };
+
+      openAppModal(`
+        <div class="modal-header">
+          <span style="font-weight: 800; font-size: 13px;">Attendees • ${e.title}</span>
+          <button class="btn btn-outline" style="background: var(--slate-800); color: white;" onclick="closeAppModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="tag tag-green">${st.attending}${e.capacity ? ' / ' + e.capacity : ''} attending</span>
+              <span class="tag tag-blue">${st.awaiting} awaiting reply</span>
+              <span class="tag tag-red">${st.declined} declined</span>
+              <span class="tag tag-amber">${st.reserve} reserve</span>
+              <span class="tag tag-purple">${st.consents} consents • ${st.paid} paid</span>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-outline" onclick="inviteAllToEvent('${e.id}')">✉️ Invite Everyone Not Yet Invited</button>
+              <button class="btn btn-outline" onclick="printEventRegister('${e.id}')">🖨️ Print Register</button>
+            </div>
+          </div>
+          <div style="overflow-x: auto;">
+            <table>
+              <thead><tr><th>Young Person</th><th>Section</th><th>Reply</th><th>Consent</th><th>Paid</th><th>Notes</th><th></th></tr></thead>
+              <tbody>
+                ${people.map(m => {
+                  const a = byMember[m.id];
+                  return `
+                    <tr>
+                      <td><strong>${m.firstName} ${m.lastName}</strong>${m.alert ? ' <span class="tag tag-red">Medical</span>' : ''}</td>
+                      <td>${sectionName(m.section)}</td>
+                      <td>
+                        ${a ? `
+                          <select class="form-control" style="padding: 4px; min-width: 120px;" onchange="updateAttendee('${e.id}', '${m.id}', { status: this.value })">
+                            ${['Invited', 'Attending', 'Not attending', 'Reserve'].map(s => `<option ${a.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                          </select>
+                        ` : `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="updateAttendee('${e.id}', '${m.id}', { status: 'Invited' })">+ Invite</button>`}
+                      </td>
+                      <td>${a?.consentBy ? `<span class="tag tag-green">✓ ${a.consentBy}</span><div style="font-size: 10px; color: var(--slate-400);">${a.consentAt}</div>` : (a ? '<span class="tag tag-amber">Not signed</span>' : '')}</td>
+                      <td>${a ? `<input type="checkbox" ${a.paid ? 'checked' : ''} onchange="updateAttendee('${e.id}', '${m.id}', { paid: this.checked })" />` : ''}</td>
+                      <td>${a ? `<input class="form-control" style="padding: 4px; min-width: 140px;" value="${a.notes || ''}" placeholder="e.g. Vegetarian" onchange="updateAttendee('${e.id}', '${m.id}', { notes: this.value })" />` : ''}</td>
+                      <td>${a ? `<button class="btn btn-outline" style="padding: 4px 8px;" title="Remove invite" onclick="updateAttendee('${e.id}', '${m.id}', { remove: true })">✕</button>` : ''}</td>
+                    </tr>
+                  `;
+                }).join('') || '<tr><td colspan="7" style="color: var(--slate-500);">No young people in this section yet.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `);
+    }
+
+    async function saveAttendees(evtId, entries) {
       try {
-        await api('POST', 'programme', {
-          groupId: appState.currentGroupId,
-          section: appState.section,
-          date: d,
-          title: `Meeting: ${unescapeHtml(act.title)}`,
-          lead: appState.currentUser?.name || 'Section Leader',
-          activitiesLinked: [unescapeHtml(act.title), unescapeHtml(act.badge)]
-        });
-        alert(`Activity scheduled for ${d}`);
+        await api('PUT', `events/${evtId}/attendees`, { entries });
       } catch (err) {
         alert('Could not save: ' + err.message);
       }
       await refreshApp();
-      setTab('events');
+      if (document.getElementById('app-modal').classList.contains('open')) openAttendeesModal(evtId);
+    }
+
+    function updateAttendee(evtId, memberId, changes) {
+      saveAttendees(evtId, [{ memberId, ...changes }]);
+    }
+
+    function inviteAllToEvent(evtId) {
+      const e = appState.events.find(x => x.id === evtId);
+      if (!e) return;
+      const already = new Set((e.attendees || []).map(a => a.memberId));
+      const toInvite = eligibleMembers(e).filter(m => !already.has(m.id));
+      if (!toInvite.length) { alert('Everyone eligible has already been invited.'); return; }
+      saveAttendees(evtId, toInvite.map(m => ({ memberId: m.id, status: 'Invited' })));
+    }
+
+    function printEventRegister(evtId) {
+      const e = appState.events.find(x => x.id === evtId);
+      if (!e) return;
+      const going = (e.attendees || []).filter(a => a.status === 'Attending');
+      const rows = going.map((a, i) => {
+        const m = appState.members.find(x => x.id === a.memberId);
+        if (!m) return '';
+        return `<tr><td>${i + 1}</td><td><strong>${m.firstName} ${m.lastName}</strong><br><span class="muted">DOB: ${m.dob || 'TBC'}</span></td>
+          <td>${m.parent}<br><strong>${m.phone}</strong></td><td>${m.medical}<br><span class="muted">Allergies: ${m.allergies || 'None reported'}</span></td>
+          <td>${a.consentBy ? '✓ ' + a.consentBy : 'NOT SIGNED'}</td><td>${a.paid ? 'Paid' : 'Due'}</td><td>${a.notes || ''}</td><td style="width: 50px;"></td></tr>`;
+      }).join('');
+      printHtml(`${e.title} Register`, `
+        <h1>${e.title} — Attendance Register</h1>
+        <h2>${eventDateRange(e)} • ${e.location} • Leader in charge: ${e.leader}</h2>
+        <table>
+          <thead><tr><th>#</th><th>Young Person</th><th>Emergency Contact</th><th>Medical</th><th>Consent</th><th>Payment</th><th>Notes</th><th>Check</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="8">Nobody has confirmed yet.</td></tr>'}</tbody>
+        </table>
+      `);
+    }
+
+    function declineEvent(evtId, memberId) {
+      if (!confirm('Let the leaders know your child will not be attending?')) return;
+      saveAndRefresh(api('POST', `events/${evtId}/response`, { memberId, status: 'Not attending' }), 'Thanks — the leaders have been told.');
     }
 
     // --- SUBS STATUS & HMRC CSV EXPORT ---
@@ -1270,7 +1867,7 @@
       if (appState.role === 'parent') {
         navEl.innerHTML = `
           <button class="nav-tab ${appState.tab === 'parent_portal' ? 'parent-active' : ''}" onclick="setTab('parent_portal')">My Children & Badges</button>
-          <button class="nav-tab ${appState.tab === 'events' ? 'parent-active' : ''}" onclick="setTab('events')">Camps & Consents</button>
+          <button class="nav-tab ${appState.tab === 'events' ? 'parent-active' : ''}" onclick="setTab('events')">Programme & Events</button>
           <button class="nav-tab ${appState.tab === 'parent_rota' ? 'parent-active' : ''}" onclick="setTab('parent_rota')">Volunteer Rota</button>
           <button class="nav-tab ${appState.tab === 'messages' ? 'parent-active' : ''}" onclick="setTab('messages')">Messages (${appState.messages.length})</button>
         `;
@@ -1958,33 +2555,278 @@
         return;
       }
 
-      // TAB 5: PROGRAMME, CAMPS & DIGITAL CONSENTS
-      if (appState.tab === 'events') {
-        const eventsList = appState.events.map(e => `
-          <div class="card" style="margin-bottom: 0;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-              <div>
-                <h3 style="font-size: 16px; font-weight: 800;">${e.title}</h3>
-                <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">${e.date} • ${e.location}</div>
-              </div>
-              <span class="tag tag-green">${e.cost}</span>
-            </div>
-            <p style="font-size: 12px; color: var(--slate-600); margin: 8px 0;">${e.desc}</p>
-            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--slate-100); padding-top:10px;">
-              <span style="font-size: 11px; color: var(--slate-400);">Permit: ${e.permit}</span>
-              <button class="btn btn-primary" onclick="openPORConsentModal('${e.id}')">POR-EV1 Consent</button>
-            </div>
-          </div>
-        `).join('');
+      // TAB: ACTIVITIES & GAMES BANK
+      if (appState.tab === 'activities') {
+        const all = sectionActivities();
+        const tags = [...new Set(all.flatMap(a => a.tags || []))].sort();
+        const q = (appState.activitySearch || '').toLowerCase();
+        const shown = all.filter(a =>
+          (!appState.activityTag || (a.tags || []).includes(appState.activityTag)) &&
+          (!appState.activityLocation || a.location === appState.activityLocation || a.location === 'Either') &&
+          (!q || [a.title, a.desc, a.badge, a.equip, ...(a.tags || [])].join(' ').toLowerCase().includes(q))
+        );
+        const timesUsed = t => appState.programme.filter(p => p.section === appState.section && (p.activitiesLinked || []).includes(t)).length;
 
         viewEl.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
-              <h2 style="font-size: 18px; font-weight: 900;">Section Programme & Camp Logistics</h2>
-              <p style="font-size: 12px; color: var(--slate-500);">Review calendar schedules and digital parent consent records.</p>
+              <h2 style="font-size: 20px; font-weight: 900;">${sectionName(appState.section)} Activities & Games Bank</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">Store reusable activities with instructions, kit and risk notes, then drop them into your programme.</p>
+            </div>
+            <button class="btn btn-primary" onclick="openAddActivityModal()">+ Add Activity</button>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;">
+            <div class="search-box">
+              🔍 <input id="activity-search" placeholder="Search activities, badges, kit…" value="${escAttr(appState.activitySearch || '')}" oninput="setActivityFilter('activitySearch', this.value)" />
+            </div>
+            <select class="form-control" style="width: auto;" onchange="setActivityFilter('activityLocation', this.value)">
+              ${[['', 'Indoor & Outdoor'], ['Indoor', 'Indoor'], ['Outdoor', 'Outdoor']].map(([v, l]) => `<option value="${v}" ${appState.activityLocation === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+            <button class="subnav-btn ${!appState.activityTag ? 'active' : ''}" onclick="setActivityFilter('activityTag', '')">All tags</button>
+            ${tags.map(t => `<button class="subnav-btn ${appState.activityTag === t ? 'active' : ''}" onclick="setActivityFilter('activityTag', escAttr(this.dataset.tag))" data-tag="${t}">${t}</button>`).join('')}
+          </div>
+
+          ${shown.length ? `
+            <div class="grid-3">
+              ${shown.map(a => `
+                <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column;">
+                  <div style="display: flex; justify-content: space-between; gap: 8px; align-items: flex-start;">
+                    <h3 style="font-size: 15px; font-weight: 800; cursor: pointer;" onclick="openActivityDetailModal('${a.id}')">${a.title}</h3>
+                    ${a.duration ? `<span class="tag tag-blue" style="white-space: nowrap;">⏱ ${a.duration}</span>` : ''}
+                  </div>
+                  <div style="display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0;">
+                    ${a.location ? `<span class="tag tag-amber">${a.location}</span>` : ''}
+                    ${a.badge ? `<span class="tag tag-green">🏅 ${a.badge}</span>` : ''}
+                    ${(a.tags || []).map(t => `<span class="tag tag-purple">${t}</span>`).join('')}
+                  </div>
+                  <p style="font-size: 12px; color: var(--slate-600); margin: 4px 0 8px; flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${a.desc || '<em>No instructions yet.</em>'}</p>
+                  <div style="font-size: 11px; color: var(--slate-500); margin-bottom: 10px;">🎒 ${a.equip}${a.risk ? ' • ⚠️ Risk notes' : ''} • Used in ${timesUsed(a.title)} meeting(s)</div>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--slate-100); padding-top: 10px;">
+                    <button class="btn btn-primary" style="padding: 5px 10px;" onclick="addActivityToProgramme('${a.id}')">📅 Add to Programme</button>
+                    <button class="btn btn-outline" style="padding: 5px 10px;" onclick="openActivityDetailModal('${a.id}')">View</button>
+                    <button class="btn btn-outline" style="padding: 5px 10px;" onclick="openActivityModal('${a.id}')">Edit</button>
+                    <button class="btn btn-outline" style="padding: 5px 10px;" onclick="duplicateActivity('${a.id}')">Copy</button>
+                    <button class="btn btn-outline" style="padding: 5px 10px; color: var(--red-700);" onclick="deleteActivity('${a.id}')">Delete</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="card" style="text-align: center; color: var(--slate-500);">
+              ${all.length ? 'No activities match your filters.' : 'Your activity bank is empty. Add your first game or activity to start planning meetings.'}
+            </div>
+          `}
+        `;
+        return;
+      }
+
+      // TAB 5: PROGRAMME, CAMPS & DIGITAL CONSENTS
+      if (appState.tab === 'events' && appState.role === 'parent') {
+        const kids = appState.members;
+        const meetings = appState.programme.filter(p => !isPastDate(p.date) && kids.some(k => k.section === p.section));
+        const upcomingEvents = appState.events.filter(e => !isPastDate(e.endDate || e.date));
+
+        const eventCards = upcomingEvents.map(e => {
+          const myKids = kids.filter(k => !e.section || k.section === e.section);
+          const stats = attendeeStats(e);
+          const placesLeft = e.capacity > 0 ? Math.max(0, e.capacity - (e.placesTaken ?? stats.attending)) : null;
+          const full = e.capacity > 0 && (e.placesTaken ?? stats.attending) >= e.capacity;
+          return `
+            <div class="card" style="margin-bottom: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <div>
+                  <span class="tag tag-purple">${e.type}</span>
+                  <h3 style="font-size: 16px; font-weight: 800; margin-top: 4px;">${e.title}</h3>
+                  <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">${eventDateRange(e)} • ${e.location}</div>
+                </div>
+                <span class="tag tag-green">${e.cost}</span>
+              </div>
+              ${e.desc ? `<p style="font-size: 12px; color: var(--slate-600); margin: 8px 0; white-space: pre-wrap;">${e.desc}</p>` : ''}
+              <div style="font-size: 11px; color: var(--slate-600); line-height: 1.6;">
+                ${e.meetPoint ? `📍 Meet at: <strong>${e.meetPoint}</strong><br>` : ''}
+                👤 Leader in charge: ${e.leader}<br>
+                ${e.confirmBy ? `⏳ Please reply by <strong>${fmtDate(e.confirmBy)}</strong><br>` : ''}
+                ${full ? `<span style="color: var(--red-700); font-weight: 700;">This event is now full.</span><br>` : placesLeft !== null ? `🎟️ ${placesLeft} place(s) left<br>` : ''}
+              </div>
+              ${e.kitList ? `<details style="margin: 8px 0; font-size: 12px;"><summary style="cursor: pointer; font-weight: 700;">🎒 Kit list</summary><div style="white-space: pre-wrap; padding: 6px 0; color: var(--slate-600);">${e.kitList}</div></details>` : ''}
+              <div style="border-top: 1px solid var(--slate-100); padding-top: 10px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+                ${myKids.map(k => {
+                  const a = (e.attendees || []).find(x => x.memberId === k.id);
+                  const status = a?.status || 'Not replied';
+                  const tagCls = { 'Attending': 'tag-green', 'Not attending': 'tag-red', 'Reserve': 'tag-amber' }[status] || 'tag-blue';
+                  return `
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                      <div style="font-size: 12px;"><strong>${k.firstName}</strong> <span class="tag ${tagCls}">${status === 'Invited' ? 'Awaiting your reply' : status}</span>
+                        ${a?.consentBy ? `<span style="font-size: 10px; color: var(--slate-400);">Consent signed by ${a.consentBy}</span>` : ''}
+                      </div>
+                      <div style="display: flex; gap: 6px;">
+                        ${status !== 'Attending' ? `<button class="btn btn-primary" style="padding: 5px 10px;" ${full ? 'disabled' : ''} onclick="openPORConsentModal('${e.id}', '${k.id}')">✍️ Accept & Sign Consent</button>` : ''}
+                        ${status !== 'Not attending' ? `<button class="btn btn-outline" style="padding: 5px 10px;" onclick="declineEvent('${e.id}', '${k.id}')">Can't Attend</button>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('') || `<span style="font-size: 12px; color: var(--slate-500);">Add your child in the Parent Portal to reply.</span>`}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        viewEl.innerHTML = `
+          <div style="margin-bottom: 16px;">
+            <h2 style="font-size: 18px; font-weight: 900;">Programme, Camps & Consents</h2>
+            <p style="font-size: 12px; color: var(--slate-500);">See what's coming up, reply to event invitations and sign consent forms online.</p>
+          </div>
+
+          <h3 style="font-size: 14px; font-weight: 800; margin-bottom: 10px;">🏕️ Events & Camps</h3>
+          ${eventCards ? `<div class="grid-2" style="margin-bottom: 24px;">${eventCards}</div>` : `<div class="card" style="color: var(--slate-500);">No upcoming events right now.</div>`}
+
+          <h3 style="font-size: 14px; font-weight: 800; margin-bottom: 10px;">📅 Upcoming Meetings</h3>
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <table>
+              <thead><tr><th>Date</th><th>Time</th><th>Section</th><th>Meeting</th><th>Notes from Leaders</th></tr></thead>
+              <tbody>
+                ${meetings.map(p => `
+                  <tr>
+                    <td style="white-space: nowrap;"><strong>${fmtDate(p.date)}</strong></td>
+                    <td style="white-space: nowrap;">${p.startTime}–${p.endTime}</td>
+                    <td>${sectionName(p.section)}</td>
+                    <td><strong>${p.title}</strong>${p.location ? `<br><span style="color: var(--slate-500);">📍 ${p.location}</span>` : ''}${(p.badges || []).length ? `<br><span style="font-size: 10px; color: var(--emerald-800);">🏅 ${p.badges.join(', ')}</span>` : ''}</td>
+                    <td style="white-space: pre-wrap;">${p.parentNotes || '—'}</td>
+                  </tr>
+                `).join('') || '<tr><td colspan="5" style="color: var(--slate-500);">The leaders haven\'t published upcoming meetings yet.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        `;
+        return;
+      }
+
+      if (appState.tab === 'events') {
+        const sub = appState.progSubView || 'programme';
+        const subnav = `
+          <div class="subnav">
+            <button class="subnav-btn ${sub === 'programme' ? 'active' : ''}" onclick="setProgSubView('programme')">📅 Meeting Programme (${sectionMeetings().filter(p => !isPastDate(p.date)).length} upcoming)</button>
+            <button class="subnav-btn ${sub === 'events' ? 'active' : ''}" onclick="setProgSubView('events')">🏕️ Events & Camps (${appState.events.filter(e => !isPastDate(e.endDate || e.date)).length} upcoming)</button>
+          </div>
+        `;
+
+        if (sub === 'programme') {
+          const all = [...sectionMeetings()].sort((a, b) => (a.date + a.startTime < b.date + b.startTime ? -1 : 1));
+          const upcoming = all.filter(p => !isPastDate(p.date));
+          const shown = appState.progShowPast ? [...all].reverse() : upcoming;
+          const next = upcoming[0];
+          const badgeCount = new Set(upcoming.flatMap(p => p.badges || [])).size;
+          const helpersNeeded = upcoming.reduce((n, p) => n + (p.helpersNeeded || 0), 0);
+
+          viewEl.innerHTML = `
+            ${subnav}
+            <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h2 style="font-size: 20px; font-weight: 900;">${sectionName(appState.section)} Meeting Programme</h2>
+                <p style="font-size: 12px; color: var(--slate-500);">Plan weekly meetings, link activities and badges, and share notes with parents.</p>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-outline" onclick="appState.progShowPast = !appState.progShowPast; renderContent();">${appState.progShowPast ? 'Show Upcoming Only' : 'Show Past Meetings'}</button>
+                <button class="btn btn-outline" onclick="printProgramme()">🖨️ Print Programme</button>
+                <button class="btn btn-primary" onclick="openMeetingModal('')">+ Add Meeting</button>
+              </div>
+            </div>
+
+            <div class="grid-4">
+              <div class="card"><span class="tag tag-green">Next Meeting</span><div style="font-size: 15px; font-weight: 900; margin-top: 6px;">${next ? fmtDate(next.date) : 'None planned'}</div><div style="font-size: 11px; color: var(--slate-500);">${next ? next.title : 'Add a meeting to get started'}</div></div>
+              <div class="card"><span class="tag tag-blue">Planned Ahead</span><div style="font-size: 24px; font-weight: 900; margin-top: 6px;">${upcoming.length}</div><div style="font-size: 11px; color: var(--slate-500);">upcoming meetings</div></div>
+              <div class="card"><span class="tag tag-purple">Badges Covered</span><div style="font-size: 24px; font-weight: 900; margin-top: 6px;">${badgeCount}</div><div style="font-size: 11px; color: var(--slate-500);">in upcoming meetings</div></div>
+              <div class="card"><span class="tag tag-amber">Parent Helpers</span><div style="font-size: 24px; font-weight: 900; margin-top: 6px;">${helpersNeeded}</div><div style="font-size: 11px; color: var(--slate-500);">helper slots requested</div></div>
+            </div>
+
+            ${shown.length ? shown.map(p => `
+              <div class="card" style="display: grid; grid-template-columns: 110px 1fr auto; gap: 16px; align-items: start; ${isPastDate(p.date) ? 'opacity: 0.7;' : ''}">
+                <div style="text-align: center; background: var(--slate-50); border: 1px solid var(--slate-200); border-radius: 8px; padding: 8px;">
+                  <div style="font-size: 11px; font-weight: 800; color: var(--slate-500); text-transform: uppercase;">${isIsoDate(p.date) ? fmtDate(p.date, false).split(' ')[0] : ''}</div>
+                  <div style="font-size: 18px; font-weight: 900;">${isIsoDate(p.date) ? fmtDate(p.date, false).split(' ').slice(1).join(' ') : p.date}</div>
+                  <div style="font-size: 11px; color: var(--slate-500);">${p.startTime}–${p.endTime}</div>
+                </div>
+                <div>
+                  <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                    <h3 style="font-size: 15px; font-weight: 800;">${p.title}</h3>
+                    ${p.visibleToParents === false ? '<span class="tag tag-amber">Hidden from parents</span>' : '<span class="tag tag-green">Visible to parents</span>'}
+                    ${isPastDate(p.date) ? '<span class="tag tag-blue">Past</span>' : ''}
+                  </div>
+                  <div style="font-size: 11px; color: var(--slate-500); margin: 2px 0 8px;">👤 ${p.lead}${p.location ? ` • 📍 ${p.location}` : ''}${p.helpersNeeded ? ` • 🙋 ${p.helpersNeeded} parent helper(s) needed` : ''}</div>
+                  ${(p.activitiesLinked || []).length ? `<div style="font-size: 12px; margin-bottom: 6px;"><strong>Activities:</strong> ${p.activitiesLinked.map(t => {
+                    const act = sectionActivities().find(a => a.title === t);
+                    return act ? `<a href="#" onclick="event.preventDefault(); openActivityDetailModal('${act.id}')" style="color: var(--primary-dark);">${t}</a>` : t;
+                  }).join(' • ')}</div>` : ''}
+                  ${(p.badges || []).length ? `<div style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;">${p.badges.map(b => `<span class="tag tag-green">🏅 ${b}</span>`).join('')}</div>` : ''}
+                  ${p.parentNotes ? `<div style="font-size: 11px; color: var(--slate-600);"><strong>Parents:</strong> ${p.parentNotes}</div>` : ''}
+                  ${p.leaderNotes ? `<div style="font-size: 11px; color: var(--slate-600);"><strong>Leaders only:</strong> ${p.leaderNotes}</div>` : ''}
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <button class="btn btn-outline" style="padding: 5px 10px;" onclick="openMeetingModal('${p.id}')">✏️ Edit</button>
+                  <button class="btn btn-outline" style="padding: 5px 10px;" onclick="duplicateMeeting('${p.id}')">📋 Copy</button>
+                  <button class="btn btn-outline" style="padding: 5px 10px;" onclick="toggleMeetingVisibility('${p.id}')">${p.visibleToParents === false ? '👁 Show' : '🙈 Hide'}</button>
+                  <button class="btn btn-outline" style="padding: 5px 10px; color: var(--red-700);" onclick="deleteMeeting('${p.id}')">Delete</button>
+                </div>
+              </div>
+            `).join('') : `<div class="card" style="text-align: center; color: var(--slate-500);">${all.length ? 'No upcoming meetings. Add one or show past meetings.' : 'No meetings planned for this section yet.'}</div>`}
+          `;
+          return;
+        }
+
+        const evs = appState.events.filter(e => appState.progShowPast || !isPastDate(e.endDate || e.date));
+        const eventsList = evs.map(e => {
+          const st = attendeeStats(e);
+          const pct = e.capacity ? Math.min(100, Math.round(st.attending / e.capacity * 100)) : 0;
+          return `
+            <div class="card" style="margin-bottom: 0; ${isPastDate(e.endDate || e.date) ? 'opacity: 0.7;' : ''}">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <div>
+                  <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                    <span class="tag tag-purple">${e.type}</span>
+                    <span class="tag tag-blue">${e.section ? sectionName(e.section) : 'Whole Group'}</span>
+                    ${e.published === false ? '<span class="tag tag-amber">Draft</span>' : ''}
+                    ${e.nightsAway ? `<span class="tag tag-green">${e.nightsAway} night(s) away</span>` : ''}
+                  </div>
+                  <h3 style="font-size: 16px; font-weight: 800; margin-top: 6px;">${e.title}</h3>
+                  <div style="font-size: 11px; color: var(--slate-500); margin-top: 2px;">${eventDateRange(e)} • ${e.location}</div>
+                </div>
+                <span class="tag tag-green">${e.cost}</span>
+              </div>
+              ${e.desc ? `<p style="font-size: 12px; color: var(--slate-600); margin: 8px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${e.desc}</p>` : ''}
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; text-align: center;">
+                <div style="background: var(--emerald-50); border-radius: 6px; padding: 6px;"><div style="font-size: 16px; font-weight: 900; color: var(--emerald-800);">${st.attending}${e.capacity ? `/${e.capacity}` : ''}</div><div style="font-size: 10px;">Attending</div></div>
+                <div style="background: var(--blue-50); border-radius: 6px; padding: 6px;"><div style="font-size: 16px; font-weight: 900; color: var(--blue-700);">${st.awaiting}</div><div style="font-size: 10px;">Awaiting</div></div>
+                <div style="background: var(--purple-50); border-radius: 6px; padding: 6px;"><div style="font-size: 16px; font-weight: 900; color: var(--purple-700);">${st.consents}</div><div style="font-size: 10px;">Consents</div></div>
+                <div style="background: var(--amber-50); border-radius: 6px; padding: 6px;"><div style="font-size: 16px; font-weight: 900; color: var(--amber-800);">${st.paid}</div><div style="font-size: 10px;">Paid</div></div>
+              </div>
+              ${e.capacity ? `<div style="height: 6px; background: var(--slate-100); border-radius: 3px; overflow: hidden; margin-bottom: 8px;"><div style="height: 100%; width: ${pct}%; background: ${pct >= 100 ? 'var(--red-700)' : 'var(--primary)'};"></div></div>` : ''}
+              <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--slate-100); padding-top: 10px; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 11px; color: var(--slate-400);">👤 ${e.leader} • ${e.permit}${e.confirmBy ? ` • Reply by ${fmtDate(e.confirmBy)}` : ''}</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-primary" style="padding: 5px 10px;" onclick="openAttendeesModal('${e.id}')">👥 Attendees & Consents</button>
+                  <button class="btn btn-outline" style="padding: 5px 10px;" onclick="openEventModal('${e.id}')">Edit</button>
+                  <button class="btn btn-outline" style="padding: 5px 10px;" onclick="printEventRegister('${e.id}')">🖨️</button>
+                  <button class="btn btn-outline" style="padding: 5px 10px; color: var(--red-700);" onclick="deleteEvent('${e.id}')">Delete</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        viewEl.innerHTML = `
+          ${subnav}
+          <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h2 style="font-size: 20px; font-weight: 900;">Events, Camps & Digital Consent</h2>
+              <p style="font-size: 12px; color: var(--slate-500);">Invite young people, track replies, consent forms and payments, and print registers.</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-outline" onclick="appState.progShowPast = !appState.progShowPast; renderContent();">${appState.progShowPast ? 'Show Upcoming Only' : 'Show Past Events'}</button>
+              <button class="btn btn-primary" onclick="openEventModal('')">+ Create Event</button>
             </div>
           </div>
-          <div class="grid-2">${eventsList}</div>
+          ${eventsList ? `<div class="grid-2">${eventsList}</div>` : `<div class="card" style="text-align: center; color: var(--slate-500);">No ${appState.progShowPast ? '' : 'upcoming '}events yet. Create a camp, trip or activity day to start inviting young people.</div>`}
         `;
         return;
       }
@@ -2284,13 +3126,13 @@
     }
 
     // --- MODAL: POR-EV1 ACTIVITY CONSENT (signed consent is sent to the section leaders) ---
-    function openPORConsentModal(evtId) {
+    function openPORConsentModal(evtId, memberId) {
       const evt = appState.events.find(x => x.id === evtId);
       if (!evt) return;
       const curGroup = appState.groups.find(g => g.id === appState.currentGroupId) || appState.groups[0] || { name: 'Scout Group' };
-      const userEmail = appState.currentUser?.email || '';
-      const myKids = appState.members.filter(m => m.parentEmail && m.parentEmail === userEmail);
-      const activeKid = myKids.find(k => k.id === appState.selectedChildId) || myKids[0];
+      const activeKid = appState.members.find(k => k.id === memberId)
+        || appState.members.find(k => k.id === appState.selectedChildId)
+        || appState.members[0];
 
       openAppModal(`
         <div class="modal-header">
@@ -2303,14 +3145,16 @@
             <h2 style="font-size: 15px; font-weight: 900;">POR-EV1 ACTIVITY CONSENT</h2>
             <div style="font-size: 10px; color: var(--slate-500);">${curGroup.name}</div>
           </div>
-          <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px; margin-bottom: 12px; font-size: 12px;">
+          <div style="border: 1px solid var(--slate-200); padding: 8px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; line-height: 1.6;">
             <strong>Event:</strong> ${evt.title}<br>
-            <strong>Dates:</strong> ${evt.date}<br>
-            <strong>Location:</strong> ${evt.location}
+            <strong>Dates:</strong> ${eventDateRange(evt)}<br>
+            <strong>Location:</strong> ${evt.location}${evt.meetPoint ? ` (meet at ${evt.meetPoint})` : ''}<br>
+            <strong>Cost:</strong> ${evt.cost} • <strong>Leader in charge:</strong> ${evt.leader}
           </div>
-          ${activeKid ? `
-            <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; font-size: 11px; line-height: 1.4; margin-bottom: 16px;">
-              I give permission for <strong>${activeKid.firstName} ${activeKid.lastName}</strong> to take part in this activity. I authorise the Leader in Charge to give emergency medical consent if I cannot be contacted immediately.
+          ${activeKid && appState.role === 'parent' ? `
+            <div style="background: var(--slate-50); border: 1px solid var(--slate-200); padding: 10px; border-radius: 6px; font-size: 11px; line-height: 1.4; margin-bottom: 12px;">
+              I give permission for <strong>${activeKid.firstName} ${activeKid.lastName}</strong> to take part in this activity. I confirm the medical and contact details held for my child are up to date
+              (medical: <em>${activeKid.medical}</em>; allergies: <em>${activeKid.allergies || 'None reported'}</em>). I authorise the Leader in Charge to give emergency medical consent if I cannot be contacted immediately.
             </div>
             <form onsubmit="handleSignConsent(event, '${activeKid.id}', '${evt.id}')">
               <div class="form-group">
@@ -2333,11 +3177,18 @@
       if (!m || !evt) return;
       const signature = document.getElementById('sig-name').value.trim();
       closeAppModal();
+      try {
+        await api('POST', `events/${evtId}/response`, { memberId, status: 'Attending', signature });
+      } catch (err) {
+        alert('Could not save: ' + err.message);
+        await refreshApp();
+        return;
+      }
       await saveAndRefresh(api('POST', 'messages', {
         groupId: appState.currentGroupId,
         subject: `POR-EV1 Consent: ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} – ${unescapeHtml(evt.title)}`,
         body: `I give permission for ${unescapeHtml(m.firstName)} ${unescapeHtml(m.lastName)} to take part in ${unescapeHtml(evt.title)} (${unescapeHtml(evt.date)}, ${unescapeHtml(evt.location)}). Signed electronically by ${signature} on ${localDate()}.`
-      }), 'Consent signed and sent to the section leaders.');
+      }), 'Consent signed — your child is booked on and the leaders have been told.');
     }
 
     // --- SUPER ADMIN SETTINGS ---
