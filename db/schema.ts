@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, jsonb, timestamp, date, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, integer, jsonb, timestamp, date, primaryKey } from "drizzle-orm/pg-core";
 
 const id = () => text().primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => timestamp("created_at").defaultNow().notNull();
@@ -92,6 +92,10 @@ export const activities = pgTable("activities", {
   badge: text().notNull().default("Scout Skill"),
   equip: text().notNull().default("Standard gear"),
   desc: text().notNull().default(""),
+  location: text().notNull().default(""), // 'Indoor' | 'Outdoor' | 'Either'
+  tags: jsonb().$type<string[]>().notNull().default([]),
+  prep: text().notNull().default(""), // leader set-up notes
+  risk: text().notNull().default(""), // risk assessment notes
   createdAt: createdAt(),
 });
 
@@ -103,6 +107,14 @@ export const programme = pgTable("programme", {
   title: text().notNull(),
   lead: text().notNull().default("Section Leader"),
   activitiesLinked: jsonb("activities_linked").$type<string[]>().notNull().default([]),
+  startTime: text("start_time").notNull().default("18:30"),
+  endTime: text("end_time").notNull().default("20:00"),
+  location: text().notNull().default(""),
+  parentNotes: text("parent_notes").notNull().default(""),
+  leaderNotes: text("leader_notes").notNull().default(""),
+  badges: jsonb().$type<string[]>().notNull().default([]),
+  helpersNeeded: integer("helpers_needed").notNull().default(0),
+  visibleToParents: boolean("visible_to_parents").notNull().default(true),
   createdAt: createdAt(),
 });
 
@@ -116,8 +128,35 @@ export const events = pgTable("events", {
   leader: text().notNull().default(""),
   permit: text().notNull().default("Nights Away Permit Approved"),
   desc: text().notNull().default(""),
+  section: text(), // null means the whole group is invited
+  type: text().notNull().default("Camp"), // 'Camp' | 'Day Trip' | 'Activity' | 'Fundraiser' | 'Other'
+  endDate: text("end_date").notNull().default(""),
+  startTime: text("start_time").notNull().default(""),
+  endTime: text("end_time").notNull().default(""),
+  meetPoint: text("meet_point").notNull().default(""),
+  kitList: text("kit_list").notNull().default(""),
+  capacity: integer().notNull().default(0), // 0 = unlimited
+  confirmBy: text("confirm_by").notNull().default(""),
+  nightsAway: integer("nights_away").notNull().default(0),
+  published: boolean().notNull().default(true),
   createdAt: createdAt(),
 });
+
+// One row per young person invited to an event, tracking their reply, consent and payment.
+export const eventAttendees = pgTable(
+  "event_attendees",
+  {
+    eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+    memberId: text("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    status: text().notNull().default("Invited"), // 'Invited' | 'Attending' | 'Not attending' | 'Reserve'
+    consentBy: text("consent_by").notNull().default(""),
+    consentAt: timestamp("consent_at"),
+    paid: boolean().notNull().default(false),
+    notes: text().notNull().default(""),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.memberId] })],
+);
 
 export const messages = pgTable("messages", {
   id: id(),

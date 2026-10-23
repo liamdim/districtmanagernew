@@ -1,10 +1,11 @@
 import type { Config } from "@netlify/functions";
 import { getUser, admin, verifyRequestOrigin, type User } from "@netlify/identity";
-import { and, asc, desc, eq, inArray, or, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, or, isNull } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   activities,
   attendance,
+  eventAttendees,
   events,
   groups,
   leaderRoles,
@@ -41,6 +42,12 @@ const str = (v: unknown, max = 500): string => (typeof v === "string" ? v.trim()
 const reqStr = (v: unknown, field: string, max = 500): string => str(v, max) || fail(422, `${field} is required.`);
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(0, 50) : []);
 const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const optDate = (v: unknown): string => (isDate(v) ? v : "");
+const time = (v: unknown): string => (typeof v === "string" && /^\d{2}:\d{2}$/.test(v) ? v : "");
+const int = (v: unknown, max = 10000): number => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, max) : 0;
+};
 
 // --- Session & access rules ---
 
@@ -187,6 +194,15 @@ const parsePrice = (v: unknown): string => {
   return `£${n.toFixed(2)}`;
 };
 
+const toAttendee = (a: typeof eventAttendees.$inferSelect) => ({
+  memberId: a.memberId,
+  status: a.status,
+  consentBy: a.consentBy,
+  consentAt: a.consentAt ? formatTimestamp(a.consentAt) : "",
+  paid: a.paid,
+  notes: a.notes,
+});
+
 const formatTimestamp = (d: Date) => d.toISOString().replace("T", " ").substring(0, 16);
 
 // --- Handlers ---
@@ -258,12 +274,26 @@ async function getData(s: Session, url: URL) {
   // Leaders only see activities and programme entries for the sections they've been given.
   const scopeList = leaderScope === null ? null : leaderScope.length ? leaderScope : ["__none__"];
   const activityFilter = s.isLeader && scopeList ? and(eq(activities.groupId, groupId), inArray(activities.section, scopeList)) : eq(activities.groupId, groupId);
-  const programmeFilter = s.isLeader && scopeList ? and(eq(programme.groupId, groupId), inArray(programme.section, scopeList)) : eq(programme.groupId, groupId);
+
+  // Parents only see published meetings and events for their children's sections.
+  const parentSections = [...new Set([...active.map((m) => m.section), s.profile.section ?? "__none__"])];
+  let programmeFilter;
+  let eventFilter;
+  if (s.isAdmin) {
+    programmeFilter = eq(programme.groupId, groupId);
+    eventFilter = eq(events.groupId, groupId);
+  } else if (s.isLeader) {
+    programmeFilter = scopeList ? and(eq(programme.groupId, groupId), inArray(programme.section, scopeList)) : eq(programme.groupId, groupId);
+    eventFilter = scopeList ? and(eq(events.groupId, groupId), or(isNull(events.section), inArray(events.section, scopeList))) : eq(events.groupId, groupId);
+  } else {
+    programmeFilter = and(eq(programme.groupId, groupId), eq(programme.visibleToParents, true), inArray(programme.section, parentSections));
+    eventFilter = and(eq(events.groupId, groupId), eq(events.published, true), or(isNull(events.section), inArray(events.section, parentSections)));
+  }
 
   const [activityRows, programmeRows, eventRows, messageRows, attendanceRows, peopleRows, roleRows] = await Promise.all([
     staff ? db.select().from(activities).where(activityFilter).orderBy(desc(activities.createdAt)) : [],
-    db.select().from(programme).where(programmeFilter).orderBy(desc(programme.createdAt)),
-    db.select().from(events).where(eq(events.groupId, groupId)).orderBy(desc(events.createdAt)),
+    db.select().from(programme).where(programmeFilter).orderBy(asc(programme.date), asc(programme.startTime)),
+    db.select().from(events).where(eventFilter).orderBy(asc(events.date)),
     db.select().from(messages).where(messageFilter).orderBy(desc(messages.createdAt)),
     staff && memberIds.length
       ? db.select().from(attendance).where(and(eq(attendance.date, today), inArray(attendance.memberId, memberIds)))
@@ -273,6 +303,26 @@ async function getData(s: Session, url: URL) {
       : [],
     s.isAdmin ? db.select().from(leaderRoles).orderBy(asc(leaderRoles.name)) : [],
   ]);
+
+  // Invite / consent records for the young people this person can see.
+  const attendeeRows = eventRows.length && memberIds.length
+    ? await db.select().from(eventAttendees).where(and(inArray(eventAttendees.eventId, eventRows.map((e) => e.id)), inArray(eventAttendees.memberId, memberIds)))
+    : [];
+  // Places taken counts everyone attending, including children this person can't see.
+  const takenRows = eventRows.length
+    ? await db
+        .select({ eventId: eventAttendees.eventId, taken: count() })
+        .from(eventAttendees)
+        .where(and(inArray(eventAttendees.eventId, eventRows.map((e) => e.id)), eq(eventAttendees.status, "Attending")))
+        .groupBy(eventAttendees.eventId)
+    : [];
+  const placesTaken = new Map(takenRows.map((r) => [r.eventId, Number(r.taken)]));
+  const attendeesByEvent = new Map<string, ReturnType<typeof toAttendee>[]>();
+  for (const a of attendeeRows) {
+    const list = attendeesByEvent.get(a.eventId) ?? [];
+    list.push(toAttendee(a));
+    attendeesByEvent.set(a.eventId, list);
+  }
 
   const childCounts = new Map<string, number>();
   if (s.isAdmin) {
@@ -310,8 +360,8 @@ async function getData(s: Session, url: URL) {
     members: active.map(toMember),
     leftMembers: left.map(toMember),
     activities: activityRows.map(({ createdAt, groupId, ...rest }) => rest),
-    programme: programmeRows.map(({ createdAt, groupId, ...rest }) => rest),
-    events: eventRows.map(({ createdAt, ...rest }) => ({ ...rest, attendees: [] })),
+    programme: programmeRows.map(({ createdAt, groupId, leaderNotes, ...rest }) => (staff ? { ...rest, leaderNotes } : rest)),
+    events: eventRows.map(({ createdAt, ...rest }) => ({ ...rest, attendees: attendeesByEvent.get(rest.id) ?? [], placesTaken: placesTaken.get(rest.id) ?? 0 })),
     messages: messageRows.map((m) => ({
       id: m.id,
       sender: m.sender,
@@ -426,70 +476,215 @@ function requireSectionAccess(s: Session, section: string) {
   if (scope !== null && !scope.includes(section)) fail(403, "You don't have access to that section.");
 }
 
+const activityFields = (body: any) => ({
+  title: reqStr(body.title, "Title", 200),
+  duration: str(body.duration, 200),
+  badge: str(body.badge, 200) || "Scout Skill",
+  equip: str(body.equip, 500) || "Standard gear",
+  desc: str(body.desc, 4000),
+  location: str(body.location, 50),
+  tags: strList(body.tags).map((t) => t.trim().slice(0, 40)).filter(Boolean),
+  prep: str(body.prep, 2000),
+  risk: str(body.risk, 2000),
+});
+
 async function createActivity(s: Session, body: any) {
   requireStaff(s);
   const groupId = await resolveGroup(s, str(body.groupId));
   const section = reqStr(body.section, "Section", 100);
   requireSectionAccess(s, section);
-  const [a] = await db
-    .insert(activities)
-    .values({
-      groupId,
-      section,
-      title: reqStr(body.title, "Title", 200),
-      duration: str(body.duration, 200),
-      badge: str(body.badge, 200) || "Scout Skill",
-      equip: str(body.equip, 500) || "Standard gear",
-      desc: str(body.desc, 4000),
-    })
-    .returning();
+  const [a] = await db.insert(activities).values({ groupId, section, ...activityFields(body) }).returning();
   return a;
 }
 
-async function deleteActivity(s: Session, id: string) {
+async function getManagedActivity(s: Session, id: string) {
   requireStaff(s);
   const [a] = await db.select().from(activities).where(eq(activities.id, id));
   if (!a || (!s.isAdmin && a.groupId !== s.profile.groupId)) fail(404, "Activity not found.");
   requireSectionAccess(s, a!.section);
-  await db.delete(activities).where(eq(activities.id, id));
+  return a!;
+}
+
+async function updateActivity(s: Session, id: string, body: any) {
+  const a = await getManagedActivity(s, id);
+  const section = str(body.section, 100) || a.section;
+  requireSectionAccess(s, section);
+  await db.update(activities).set({ section, ...activityFields(body) }).where(eq(activities.id, a.id));
   return { ok: true };
 }
+
+async function deleteActivity(s: Session, id: string) {
+  const a = await getManagedActivity(s, id);
+  await db.delete(activities).where(eq(activities.id, a.id));
+  return { ok: true };
+}
+
+const programmeFields = (body: any) => ({
+  date: optDate(body.date) || fail(422, "Please choose a meeting date."),
+  title: reqStr(body.title, "Title", 300),
+  lead: str(body.lead, 200) || "Section Leader",
+  activitiesLinked: strList(body.activitiesLinked).map((x) => x.slice(0, 200)),
+  startTime: time(body.startTime) || "18:30",
+  endTime: time(body.endTime) || "20:00",
+  location: str(body.location, 300),
+  parentNotes: str(body.parentNotes, 4000),
+  leaderNotes: str(body.leaderNotes, 4000),
+  badges: strList(body.badges).map((x) => x.slice(0, 200)),
+  helpersNeeded: int(body.helpersNeeded, 50),
+  visibleToParents: body.visibleToParents !== false,
+});
 
 async function createProgrammeEntry(s: Session, body: any) {
   requireStaff(s);
   const groupId = await resolveGroup(s, str(body.groupId));
   const section = reqStr(body.section, "Section", 100);
   requireSectionAccess(s, section);
-  const [p] = await db
-    .insert(programme)
-    .values({
-      groupId,
-      section,
-      date: reqStr(body.date, "Date", 50),
-      title: reqStr(body.title, "Title", 300),
-      lead: str(body.lead, 200) || "Section Leader",
-      activitiesLinked: strList(body.activitiesLinked),
-    })
-    .returning();
+  const [p] = await db.insert(programme).values({ groupId, section, ...programmeFields(body) }).returning();
   return p;
 }
+
+async function getManagedProgrammeEntry(s: Session, id: string) {
+  requireStaff(s);
+  const [p] = await db.select().from(programme).where(eq(programme.id, id));
+  if (!p || (!s.isAdmin && p.groupId !== s.profile.groupId)) fail(404, "Meeting not found.");
+  requireSectionAccess(s, p!.section);
+  return p!;
+}
+
+async function updateProgrammeEntry(s: Session, id: string, body: any) {
+  const p = await getManagedProgrammeEntry(s, id);
+  await db.update(programme).set(programmeFields(body)).where(eq(programme.id, p.id));
+  return { ok: true };
+}
+
+async function deleteProgrammeEntry(s: Session, id: string) {
+  const p = await getManagedProgrammeEntry(s, id);
+  await db.delete(programme).where(eq(programme.id, p.id));
+  return { ok: true };
+}
+
+const EVENT_TYPES = new Set(["Camp", "Day Trip", "Activity", "Fundraiser", "Meeting", "Other"]);
+const ATTENDEE_STATUSES = new Set(["Invited", "Attending", "Not attending", "Reserve"]);
+
+const eventFields = async (s: Session, body: any) => {
+  const section = str(body.section, 100) || null;
+  if (section) {
+    if (!(await sectionExists(section))) fail(422, "Unknown section.");
+    requireSectionAccess(s, section);
+  } else if (leaderSectionScope(s) !== null) {
+    fail(403, "Only leaders with access to every section can create whole-group events.");
+  }
+  const date = optDate(body.date) || fail(422, "Please choose a start date.");
+  const endDate = optDate(body.endDate);
+  if (endDate && endDate < date) fail(422, "The end date can't be before the start date.");
+  return {
+    section,
+    title: reqStr(body.title, "Title", 200),
+    type: EVENT_TYPES.has(body.type) ? body.type : "Other",
+    date,
+    endDate,
+    startTime: time(body.startTime),
+    endTime: time(body.endTime),
+    location: reqStr(body.location, "Location", 300),
+    meetPoint: str(body.meetPoint, 300),
+    cost: str(body.cost, 50) || "Free",
+    leader: reqStr(body.leader, "Leader in charge", 200),
+    permit: str(body.permit, 200) || "Not required",
+    desc: str(body.desc, 4000),
+    kitList: str(body.kitList, 4000),
+    capacity: int(body.capacity, 1000),
+    confirmBy: optDate(body.confirmBy),
+    nightsAway: int(body.nightsAway, 60),
+    published: body.published !== false,
+  };
+};
 
 async function createEvent(s: Session, body: any) {
   requireStaff(s);
   const groupId = await resolveGroup(s, str(body.groupId));
-  const [e] = await db
-    .insert(events)
-    .values({
-      groupId,
-      title: reqStr(body.title, "Title", 200),
-      date: reqStr(body.date, "Date", 100),
-      location: reqStr(body.location, "Location", 300),
-      cost: reqStr(body.cost, "Cost", 50),
-      leader: reqStr(body.leader, "Leader", 200),
-      desc: str(body.desc, 4000) || "Scout camp event.",
-    })
-    .returning();
+  const [e] = await db.insert(events).values({ groupId, ...(await eventFields(s, body)) }).returning();
   return e;
+}
+
+async function getVisibleEvent(s: Session, id: string) {
+  const [e] = await db.select().from(events).where(eq(events.id, id));
+  if (!e || (!s.isAdmin && e.groupId !== s.profile.groupId)) fail(404, "Event not found.");
+  return e!;
+}
+
+async function getManagedEvent(s: Session, id: string) {
+  requireStaff(s);
+  const e = await getVisibleEvent(s, id);
+  if (e.section) requireSectionAccess(s, e.section);
+  else if (leaderSectionScope(s) !== null) fail(403, "Only leaders with access to every section can change whole-group events.");
+  return e;
+}
+
+async function updateEvent(s: Session, id: string, body: any) {
+  const e = await getManagedEvent(s, id);
+  await db.update(events).set(await eventFields(s, body)).where(eq(events.id, e.id));
+  return { ok: true };
+}
+
+async function deleteEvent(s: Session, id: string) {
+  const e = await getManagedEvent(s, id);
+  await db.delete(events).where(eq(events.id, e.id));
+  return { ok: true };
+}
+
+// Leaders invite young people and update their reply, payment and notes.
+async function saveEventAttendees(s: Session, id: string, body: any) {
+  const e = await getManagedEvent(s, id);
+  const entries: any[] = Array.isArray(body.entries) ? body.entries.slice(0, 500) : [];
+  for (const entry of entries) {
+    const m = await getManagedMember(s, str(entry?.memberId, 100));
+    if (m.groupId !== e.groupId || (e.section && m.section !== e.section)) continue;
+    if (entry.remove === true) {
+      await db.delete(eventAttendees).where(and(eq(eventAttendees.eventId, e.id), eq(eventAttendees.memberId, m.id)));
+      continue;
+    }
+    const set: Partial<typeof eventAttendees.$inferInsert> = { updatedAt: new Date() };
+    if (ATTENDEE_STATUSES.has(entry.status)) set.status = entry.status;
+    if ("paid" in entry) set.paid = entry.paid === true;
+    if ("notes" in entry) set.notes = str(entry.notes, 1000);
+    await db
+      .insert(eventAttendees)
+      .values({ eventId: e.id, memberId: m.id, status: set.status ?? "Invited", paid: set.paid ?? false, notes: set.notes ?? "" })
+      .onConflictDoUpdate({ target: [eventAttendees.eventId, eventAttendees.memberId], set });
+  }
+  return { ok: true };
+}
+
+// Parents reply for their own child; saying yes needs a typed consent signature.
+async function respondToEvent(s: Session, id: string, body: any) {
+  const e = await getVisibleEvent(s, id);
+  const [m] = await db.select().from(members).where(eq(members.id, str(body.memberId, 100)));
+  if (!m || m.parentUserId !== s.user.id || m.groupId !== e.groupId) fail(404, "Child not found.");
+  if (!e.published || (e.section && m!.section !== e.section)) fail(403, "This event isn't open to your child's section.");
+
+  const attending = body.status === "Attending";
+  const signature = str(body.signature, 200);
+  if (attending && !signature) fail(422, "Please type your full name to sign the consent.");
+
+  if (attending && e.capacity > 0) {
+    const taken = await db
+      .select({ memberId: eventAttendees.memberId })
+      .from(eventAttendees)
+      .where(and(eq(eventAttendees.eventId, e.id), eq(eventAttendees.status, "Attending")));
+    if (taken.filter((t) => t.memberId !== m!.id).length >= e.capacity) fail(409, "Sorry, this event is full. Please contact the leader to join the reserve list.");
+  }
+
+  const set = {
+    status: attending ? "Attending" : "Not attending",
+    consentBy: attending ? signature : "",
+    consentAt: attending ? new Date() : null,
+    updatedAt: new Date(),
+  };
+  await db
+    .insert(eventAttendees)
+    .values({ eventId: e.id, memberId: m!.id, ...set })
+    .onConflictDoUpdate({ target: [eventAttendees.eventId, eventAttendees.memberId], set });
+  return { ok: true };
 }
 
 async function createMessage(s: Session, body: any) {
@@ -698,7 +893,7 @@ async function deleteLeaderRole(s: Session, id: string) {
 export default async (req: Request) => {
   const url = new URL(req.url);
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
-  const [resource, id] = parts;
+  const [resource, id, sub] = parts;
   const method = req.method;
 
   try {
@@ -708,7 +903,7 @@ export default async (req: Request) => {
     const s = await loadSession();
     const body = method === "GET" || method === "DELETE" ? {} : await req.json().catch(() => ({}));
 
-    const route = `${method} ${resource}${id ? "/:id" : ""}`;
+    const route = `${method} ${resource}${id ? "/:id" : ""}${sub ? `/${sub}` : ""}`;
     switch (route) {
       case "GET data": return Response.json(await getData(s, url));
       case "PATCH profile": return Response.json(await updateOwnProfile(s, body));
@@ -717,9 +912,16 @@ export default async (req: Request) => {
       case "DELETE members/:id": return Response.json(await deleteMember(s, id));
       case "PUT attendance": return Response.json(await saveAttendance(s, body));
       case "POST activities": return Response.json(await createActivity(s, body), { status: 201 });
+      case "PATCH activities/:id": return Response.json(await updateActivity(s, id, body));
       case "DELETE activities/:id": return Response.json(await deleteActivity(s, id));
       case "POST programme": return Response.json(await createProgrammeEntry(s, body), { status: 201 });
+      case "PATCH programme/:id": return Response.json(await updateProgrammeEntry(s, id, body));
+      case "DELETE programme/:id": return Response.json(await deleteProgrammeEntry(s, id));
       case "POST events": return Response.json(await createEvent(s, body), { status: 201 });
+      case "PATCH events/:id": return Response.json(await updateEvent(s, id, body));
+      case "DELETE events/:id": return Response.json(await deleteEvent(s, id));
+      case "PUT events/:id/attendees": return Response.json(await saveEventAttendees(s, id, body));
+      case "POST events/:id/response": return Response.json(await respondToEvent(s, id, body));
       case "POST messages": return Response.json(await createMessage(s, body), { status: 201 });
       case "POST groups": return Response.json(await createGroup(s, body), { status: 201 });
       case "PATCH groups/:id": return Response.json(await updateGroup(s, id, body));
